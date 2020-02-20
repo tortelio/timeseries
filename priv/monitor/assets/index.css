@@ -1,0 +1,19 @@
+div.items {
+  height: 80%;
+  min-height: 800px;
+  width: 80%;
+  min-width: 800px;
+
+  margin: 10%;
+}
+
+div.items > div.item {
+  height: 100px;
+  width: 100%;
+}
+
+div.items > div.item > div.row-cell {
+  height: 100%;
+  width: 50%;
+  float: left;
+}

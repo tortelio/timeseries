@@ -28,7 +28,7 @@ disconnect(Conn) ->
     ok.
 
 send(Conn, Msg) ->
-    ok = gun:ws_send(Conn, {binary, msgpack:pack(Msg)}),
+    ok = gun:ws_send(Conn, {binary, jiffy:encode(Msg)}),
     ok.
 
 send_for_reply(Conn, Msg) ->
@@ -39,8 +39,7 @@ send_for_reply(Conn, Msg) ->
 take(Conn) ->
     receive
         {gun_ws, Conn, _Ref, {binary, Data}} ->
-            {ok, Msg} = msgpack:unpack(Data),
-            Msg
+            jiffy:decode(Data, [return_maps])
     after
         5000 ->
             throw({missing_message, Conn})

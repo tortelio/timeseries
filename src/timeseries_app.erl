@@ -39,9 +39,23 @@
 start(_StartType, _StartArgs) ->
     Port = application:get_env(?APPLICATION, port, 8080),
 
-    PathList = [{"/info",           info_http_handler, []},
-                {"/save/:token",    save_http_handler, []},
-                {"/load/:token",    load_http_handler, []}],
+    PathList =
+        [% timeseries interface
+         {"/info",              info_http_handler, []},
+         {"/download/:token",   download_http_handler, []},
+         {"/save/:token",       save_ws_handler, []},
+         {"/load/:token",       load_ws_handler, []},
+
+         % monitor
+         {"/index.html",        cowboy_static,
+          {file, "priv/monitor/index.html"}},
+         {"/assets/[...]",      cowboy_static,
+          {dir, "priv/monitor/assets"}},
+
+         % online collectors
+         {"/motion-collector",  cowboy_static,
+          {file, "priv/collectors/sensor.html"}}
+        ],
 
     Dispatch = cowboy_router:compile([{'_', PathList}]),
     {ok, _} = cowboy:start_clear(timeseries_tcp_listener,

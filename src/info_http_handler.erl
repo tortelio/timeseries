@@ -21,9 +21,10 @@ init(Request0, []) ->
 
     {ok, Info} = timeseries_server:info(),
 
-    Headers = #{<<"content-type">> => <<"application/msgpack">>},
-    Body = msgpack:pack(Info),
+    Headers = #{<<"content-type">> => <<"application/json">>,
+                % TODO
+                <<"access-control-allow-origin">> => <<"*">>},
+    Body = jiffy:encode(Info),
     Request = cowboy_req:reply(200, Headers, Body, Request0),
 
     {ok, Request, noop}.
-

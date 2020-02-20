@@ -21,9 +21,8 @@ disconnect(Conn) ->
     ok = gun:close(Conn).
 
 get(Conn, Path) ->
-    Headers = [{<<"content-type">>, <<"application/msgpack">>}],
+    Headers = [{<<"content-type">>, <<"application/json">>}],
     StreamRef = gun:get(Conn, Path, Headers),
     {response, nofin, 200, _Headers} = gun:await(Conn, StreamRef),
     {ok, Body} = gun:await_body(Conn, StreamRef),
-    {ok, Msg} = msgpack:unpack(Body),
-    Msg.
+    jiffy:decode(Body, [return_maps]).

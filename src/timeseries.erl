@@ -23,7 +23,11 @@
 % Getters
 -export([info/1,
          length/1,
+         token/1,
          events/1]).
+
+% Utils
+-export([is_valid/1]).
 
 % Types
 -export_type([timeseries/0,
@@ -36,7 +40,8 @@
 %%%=============================================================================
 
 -record(timeseries, {token :: token(),
-                     events :: [event()],
+                     events :: [event()],   % this field is containing events in
+                                            % reverse order
                      state :: any()}).
 
 -type token() :: binary().
@@ -68,8 +73,8 @@ new(Token) when is_binary(Token) ->
       Timeseries1 :: timeseries(),
       Event :: event(),
       Timeseries2 :: timeseries().
-add(#timeseries{events = Events} = Timeseries, {Ts, Coord}) ->
-    Timeseries#timeseries{events = Events ++ [{Ts, Coord}]}.
+add(#timeseries{events = Events} = Timeseries, Event) ->
+    Timeseries#timeseries{events = [Event | Events]}.
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -105,8 +110,39 @@ info(#timeseries{} = Timeseries) ->
 %% @doc
 %% @end
 %%------------------------------------------------------------------------------
+-spec token(Timeseries) -> Token when
+      Timeseries :: timeseries(),
+      Token :: token().
+token(#timeseries{token = Token}) ->
+    Token.
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% @end
+%%------------------------------------------------------------------------------
 -spec events(Timeseries) -> Events when
       Timeseries :: timeseries(),
       Events :: [event()].
 events(#timeseries{events = Events}) ->
-    [[Ts, Coord] || {Ts, Coord} <- Events].
+    lists:reverse(Events).
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% @end
+%%------------------------------------------------------------------------------
+-spec is_valid(Any) -> Result when
+      Any :: any(),
+      Result :: boolean().
+is_valid(#timeseries{} = Timeseries) ->
+    is_valid(timeseries, Timeseries);
+is_valid(Map) when is_map(Map) ->
+    is_valid(event, Map);
+is_valid(_) ->
+    false.
+
+is_valid(timeseries, #timeseries{events = Events}) ->
+    lists:all(fun(Event) -> is_valid(event, Event) end, Events);
+is_valid(event, #{<<"t">> := _}) ->
+    true;
+is_valid(_, _) ->
+    false.

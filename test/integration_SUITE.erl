@@ -73,7 +73,7 @@ basics(_Config) ->
     % set data
     {ok, Set} = ws_client:connect("localhost", 8080, "/save/my-token-123"),
 
-    ok = ws_client:send(Set, [1, 123]),
+    ok = ws_client:send(Set, #{<<"t">> => 1, <<"x">> => 123}),
     ok = ws_client:send(Set, <<"end">>),
     ok = ws_client:disconnect(Set),
 
@@ -90,10 +90,16 @@ basics(_Config) ->
     ok = timer:sleep(200),
 
     % get data
-    {ok, Get} = ws_client:connect("localhost", 8080, "/load/my-token-123"),
+    {ok, Load} = ws_client:connect("localhost", 8080, "/load/my-token-123"),
+    ?assertEqual([#{<<"t">> => 1, <<"x">> => 123}],
+                 ws_client:take(Load)),
+    ok = ws_client:disconnect(Load),
 
-    ?assertEqual([[1, 123]], ws_client:take(Get)),
+    % get data
+    {ok, Download} = http_client:connect("localhost", 8080),
+    ?assertEqual([#{<<"t">> => 1, <<"x">> => 123}],
+                 http_client:get(Download, "/download/my-token-123")),
+    ok = http_client:disconnect(Download),
 
-    ok = ws_client:disconnect(Get),
 
     ok.

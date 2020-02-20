@@ -21,6 +21,7 @@
 -export([start_link/0]).
 
 -export([info/0, info/1,
+         save/1,
          load/1,
          new/1,
          add/2,
@@ -85,6 +86,16 @@ info() ->
       Info :: timeseries:info().
 info(Token) ->
     gen_server:call(?MODULE, {info, Token}).
+
+%%------------------------------------------------------------------------------
+%% @doc Save a given timeseries.
+%% @end
+%%------------------------------------------------------------------------------
+-spec save(Timeseries) -> Result when
+      Timeseries :: timeseries:timerseries(),
+      Result :: ok | {error, token_already_exist | invalid_timeseries}.
+save(Timeseries) ->
+    gen_server:call(?MODULE, {save, Timeseries}).
 
 %%------------------------------------------------------------------------------
 %% @doc Load a given timeseries.
@@ -174,6 +185,21 @@ handle_call({info, Token}, _, #state{timeseries = All} = State) ->
             {reply, {error, unknown_token}, State}
     end;
 
+handle_call({save, Timeseries}, _, #state{timeseries = All1} = State) ->
+    case timeseries:is_valid(Timeseries) of
+        true ->
+            Token = timeseries:token(Timeseries),
+            case maps:is_key(Token, All1) of
+                false ->
+                    All2 = All1#{Token => Timeseries},
+                    {reply, ok, State#state{timeseries = All2}};
+                true ->
+                    {reply, {error, token_already_exist}, State}
+            end;
+        false ->
+            {reply, {error, invalid_timeseries}, State}
+    end;
+
 handle_call({load, Token}, _, #state{timeseries = All} = State) ->
     ?LOG_NOTICE(#{msg => "Load",
                   token => Token}),
@@ -205,9 +231,14 @@ handle_call({add, Token, Event}, _, #state{timeseries = All1} = State) ->
 
     case maps:find(Token, All1) of
         {ok, Timeseries1} ->
-            Timeseries2 = timeseries:add(Timeseries1, Event),
-            All2 = All1#{Token => Timeseries2},
-            {reply, ok, State#state{timeseries = All2}};
+            case timeseries:is_valid(Event) of
+                true ->
+                    Timeseries2 = timeseries:add(Timeseries1, Event),
+                    All2 = All1#{Token => Timeseries2},
+                    {reply, ok, State#state{timeseries = All2}};
+                false ->
+                    {reply, {error, invalid_event}, State}
+            end;
         error ->
             {reply, {error, unknown_token}, State}
     end;

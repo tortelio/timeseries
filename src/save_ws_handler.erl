@@ -3,13 +3,12 @@
 %%%
 %%% All rights reserved.
 %%%-----------------------------------------------------------------------------
-%%% @doc A cowboy HTTP handler for downloading a given timeseries.
+%%% @doc A cowboy HTTP handler for saving a timeseries.
 %%% @end
 %%%-----------------------------------------------------------------------------
+-module(save_ws_handler).
 
--module(load_http_handler).
-
--include_lib("timeseries.hrl").
+-include("timeseries.hrl").
 
 %%%=============================================================================
 %%% Exports
@@ -26,7 +25,7 @@
 %%% Types
 %%%=============================================================================
 
--record state, {token :: timeseries:token()}.
+-record(state, {token :: timeseries:token()}).
 
 -type state() :: #state{}.
 
@@ -44,15 +43,23 @@
       Result :: {cowboy_websocket, Request, State, Options} | {error, Request},
       State :: state(),
       Options :: cowboy_req:opts().
-init(Req, []) ->
+init(Request, []) ->
     ?LOG_NOTICE(#{msg => "Initialize"}),
 
-    case cowboy_req:binding(token, Req) of
+    case cowboy_req:binding(token, Request) of
         undefined ->
             ?LOG_ERROR(#{msg => "Missing token"}),
-            {error, Req};
+            {error, Request};
         Token ->
-            {cowboy_websocket, Req, #state{token = Token}, ?WS_OPTIONS}
+            case timeseries_server:new(Token) of
+                ok ->
+                    State = #state{token = Token},
+                    {cowboy_websocket, Request, State, ?WS_OPTIONS};
+                {error, token_already_exist} ->
+                    ?LOG_ERROR(#{msg => "Token is already exist",
+                                 token => Token}),
+                    {error, Request}
+            end
     end.
 
 %%------------------------------------------------------------------------------
@@ -61,24 +68,11 @@ init(Req, []) ->
 %%------------------------------------------------------------------------------
 -spec websocket_init(State) -> Result when
       State :: state(),
-      Result :: {[Message], State},
-      Message :: {binary, Chunk},
-      Chunk :: binary().
-websocket_init(#state{token = Token} = State) ->
-    ?LOG_NOTICE(#{msg => "Initialize WebSocket",
+      Result :: {ok, State}.
+websocket_init(State) ->
+    ?LOG_NOTICE(#{msg => "Initialize SAVE websocket handler",
                   state => State}),
-
-    case timeseries_server:load(Token) of
-        {ok, Timeseries} ->
-            Chunk = msgpack:pack(timeseries:events(Timeseries)),
-            {[{binary, Chunk}], State};
-        Error ->
-            ?LOG_ERROR(#{msg => "Token can't be loaded",
-                         error => Error,
-                         state => State}),
-            Chunk = msgpack:pack(<<"unknown token">>),
-            {[{binary, Chunk}], State}
-    end.
+    {ok, State}.
 
 %%------------------------------------------------------------------------------
 %% @doc Cowboy `websocket_handle' callback
@@ -87,7 +81,26 @@ websocket_init(#state{token = Token} = State) ->
 -spec websocket_handle(Message, State) -> Result when
       Message :: ping | pong | {text | binary | ping | pong, binary()},
       State :: state(),
-      Result :: {stop, State}.
+      Result :: {ok, State} | {stop, State}.
+websocket_handle({_, Chunk}, #state{token = Token} = State) ->
+    ?LOG_NOTICE(#{msg => "Websocket message received",
+                  size => size(Chunk)}),
+
+    try jiffy:decode(Chunk, [return_maps]) of
+        #{<<"t">> := _} = Event ->
+            ok = timeseries_server:add(Token, Event),
+            {ok, State};
+        <<"end">> ->
+            ok = timeseries_server:finish(Token),
+            {ok, State}
+    catch
+        Class:Exception:_StackTrace ->
+            ?LOG_ERROR(#{msg => "Failed message",
+                         class => Class,
+                         exception => Exception}),
+            {stop, State}
+    end;
+
 websocket_handle(Chunk, State) ->
     ?LOG_WARNING(#{msg => "Unknown WebSocket chunk",
                    chunk => Chunk,
@@ -112,11 +125,6 @@ websocket_info(Info, State) ->
 %% @doc Cowboy `terminate' callback
 %% @end
 %%------------------------------------------------------------------------------
--spec terminate(Reason, PartialRequest, State) -> Result when
-      Reason :: any(),
-      PartialRequest :: cowboy_req:req(),
-      State :: state(),
-      Result :: ok.
 terminate(Reason, PartialRequest, State) ->
     ?LOG_ERROR(#{msg => "Terminate",
                  reason => Reason,
