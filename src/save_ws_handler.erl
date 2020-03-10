@@ -89,9 +89,6 @@ websocket_handle({_, Chunk}, #state{token = Token} = State) ->
     try jiffy:decode(Chunk, [return_maps]) of
         #{<<"t">> := _} = Event ->
             ok = timeseries_server:add(Token, Event),
-            {ok, State};
-        <<"end">> ->
-            ok = timeseries_server:finish(Token),
             {ok, State}
     catch
         Class:Exception:_StackTrace ->

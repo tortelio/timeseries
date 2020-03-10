@@ -1,4 +1,4 @@
-div.items {
+div.container {
   height: 80%;
   min-height: 800px;
   width: 80%;
@@ -7,12 +7,12 @@ div.items {
   margin: 10%;
 }
 
-div.items > div.item {
+div.container > div.row {
   height: 100px;
   width: 100%;
 }
 
-div.items > div.item > div.row-cell {
+div.container > div.row > div.cell {
   height: 100%;
   width: 50%;
   float: left;

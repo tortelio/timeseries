@@ -1,0 +1,58 @@
+<html>
+    <head>
+        <style>
+            div.container {
+                width: 80%;
+                height: 80%;
+                margin: 10%;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <button id="start">Start</button>
+            <button id="stop">Stop</button>
+            Alpha: <span id="alpha"></span>
+            <br/>
+            Beta: <span id="beta"></span>
+            <br/>
+            Gamma: <span id="gamma"></span>
+        </div>
+
+        <script>
+            const ws = new WebSocket("/save/test");
+
+            function start(event) {
+              window.addEventListener('devicemotion', handle);
+            }
+
+            function handle(event) {
+              document.getElementById("alpha").innerHTML = event.alpha;
+              document.getElementById("beta").innerHTML = event.beta;
+              document.getElementById("gamma").innerHTML = event.gamma;
+
+              ws.send({
+                t: event.interval,
+                acceleration: {
+                  alpha:  event.acceleration.alpha,
+                  beta:   event.acceleration.beta,
+                  gamma:  event.acceleration.gamma
+                },
+                accelerationWithGravity: {
+                  alpha:  event.accelerationWithGravity.alpha,
+                  beta:   event.accelerationWithGravity.beta,
+                  gamma:  event.accelerationWithGravity.gamma
+                }
+              })
+            }
+
+            document.getElementById("start").addEventListener('click', start);
+
+            window.addEventListener('click', function (event) {
+              window.addEventListener('devicemotion', handle);
+            });
+
+            window.addEventListener('devicemotion', handle);
+        </script>
+    </body>
+</html>

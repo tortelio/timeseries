@@ -16,7 +16,7 @@
 %%%=============================================================================
 
 % Setters
--export([new/1,
+-export([new/1, new/2,
          add/2,
          finish/1]).
 
@@ -63,6 +63,11 @@
 new(Token) when is_binary(Token) ->
     #timeseries{token = Token,
                 events = [],
+                state = [{created, erlang:timestamp()}]}.
+
+new(Token, Events) ->
+    #timeseries{token = Token,
+                events = Events,
                 state = [{created, erlang:timestamp()}]}.
 
 %%------------------------------------------------------------------------------

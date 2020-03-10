@@ -19,7 +19,7 @@
 init(Request0, []) ->
     ?LOG_NOTICE(#{msg => "Initialize"}),
 
-    {ok, Info} = timeseries_server:info(),
+    {ok, Info} = timeseries_server:summarize(),
 
     Headers = #{<<"content-type">> => <<"application/json">>,
                 % TODO
