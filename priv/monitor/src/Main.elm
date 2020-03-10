@@ -9,10 +9,13 @@ import Dict exposing (..)
 import Http
 import Json.Decode
 
-type alias Model =
-  { timeseries : Dict String Int }
+import ViewCommon exposing (..)
+import TimeseriesInfo exposing (..)
 
-type Message = GotInfo  ( Result Http.Error ( Dict String Int ) )
+type alias Model =
+  { timeseries : List TimeseriesInfo }
+
+type Message = GotInfo ( Result Http.Error ( Dict String Int ) )
 
 main : Program () Model Message
 main =
@@ -25,31 +28,21 @@ main =
 
 init : flags -> ( Model, Cmd Message )
 init _ =
-  ( { timeseries = Dict.empty }
+  ( { timeseries = [] }
   , downloadInfo
   )
 
 view : Model -> Html Message
-view model =
-  Html.div
-  [ class "items" ]
-  ( List.map viewTimeseries ( Dict.toList model.timeseries ) )
-
-viewTimeseries : ( String, Int ) -> Html Message
-viewTimeseries ( name, length ) =
-  Html.div
-  [ class "item" ]
-  ( List.map viewRowCell [ name, ( String.fromInt length ) ] )
-
-viewRowCell : String -> Html Message
-viewRowCell string =
-  Html.div [ class "row-cell" ] [ Html.text string ]
+view {timeseries} =
+  viewContainer ( List.map viewTimeseriesInfo timeseries )
 
 update : Message -> Model -> ( Model, Cmd Message )
 update message model =
   case message of
     GotInfo ( Ok info ) ->
-      ( { model | timeseries = info }
+      let xxx = ( List.map (\( string , length) -> timeseriesInfo string length) ( Dict.toList info ) )
+      in
+      ( { model | timeseries = xxx }
       , Cmd.none )
     GotInfo ( Err _ ) ->
       ( model

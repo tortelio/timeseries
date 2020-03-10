@@ -8,9 +8,7 @@
 %%%-----------------------------------------------------------------------------
 
 -module(timeseries_server).
-
 -behaviour(gen_server).
-
 -include("timeseries.hrl").
 
 %%%=============================================================================
@@ -18,14 +16,16 @@
 %%%=============================================================================
 
 %% API
--export([start_link/0]).
+-export([start_link/0, start_link/1]).
 
--export([info/0, info/1,
+-export([summarize/0,
+         info/1,
          save/1,
          load/1,
          new/1,
-         add/2,
-         finish/1]).
+         add/2]).
+
+-export([load_config/0]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -45,10 +45,14 @@
 %%% Types
 %%%=============================================================================
 
--type all_info() :: #{timeseriser:token() => timeseries:info()}.
--type container() :: #{timeseries:token() => timeseries:timeseries()}.
--record(state, {timeseries = #{} :: container()}).
+-record(backend, {module :: atom(), state :: term()}).
+-type backend() :: #backend{}.
+
+-record(state, {backend :: backend()}).
 -type state() :: #state{}.
+
+-type config() :: #{backend => module(),
+                    backend_config => map()}.
 
 %%%=============================================================================
 %%% API functions
@@ -61,20 +65,30 @@
 -spec start_link() -> Result when
       Result :: {ok, pid()} | ignore | {error, term()}.
 start_link() ->
+    start_link(#{}).
+
+%%------------------------------------------------------------------------------
+%% @doc Start link.
+%% @end
+%%------------------------------------------------------------------------------
+-spec start_link(Config) -> Result when
+      Config :: config(),
+      Result :: {ok, pid()} | ignore | {error, term()}.
+start_link(Config) ->
     gen_server:start_link({local, ?MODULE},
                           ?MODULE,
-                          #{},
+                          Config,
                           [{timeout, ?TIMEOUT}]).
 
 %%------------------------------------------------------------------------------
 %% @doc Get info.
 %% @end
 %%------------------------------------------------------------------------------
--spec info() -> Result when
+-spec summarize() -> Result when
       Result :: {ok, AllInfo},
-      AllInfo :: all_info().
-info() ->
-    gen_server:call(?MODULE, info).
+      AllInfo :: #{timeseriser:token() => timeseries:info()}.
+summarize() ->
+    gen_server:call(?MODULE, summarize).
 
 %%------------------------------------------------------------------------------
 %% @doc Get info about given timeseries.
@@ -130,14 +144,17 @@ add(Token, Event) ->
     gen_server:call(?MODULE, {add, Token, Event}).
 
 %%------------------------------------------------------------------------------
-%% @doc Finish the given timeseries.
+%% @doc Load config.
 %% @end
 %%------------------------------------------------------------------------------
--spec finish(Token) -> Result when
-      Token :: timeseries:token(),
-      Result :: ok | {error, unknown_token}.
-finish(Token) ->
-    gen_server:call(?MODULE, {finish, Token}).
+-spec load_config() -> Config when
+      Config :: config().
+load_config() ->
+    Backend = application:get_env(
+                ?APPLICATION, backend, timeseries_in_memory_backend),
+    BackendConfig = application:get_env(?APPLICATION, backend_config, #{}),
+    #{backend => Backend,
+      backend_config => BackendConfig}.
 
 %%%=============================================================================
 %%% gen_server callbacks
@@ -151,8 +168,19 @@ finish(Token) ->
       Config :: #{},
       Result :: {ok, State},
       State :: state().
-init(_Config = #{}) ->
-    {ok, #state{}}.
+init(Config) ->
+    ?LOG_INFO(#{msg => "Initialize server",
+                config => Config}),
+
+    Backend = maps:get(backend, Config, timeseries_in_memory_backend),
+    BackendConfig = maps:get(backend_config, Config, #{}),
+
+    case erlang:apply(Backend, initialize, [BackendConfig]) of
+        {ok, State} ->
+            {ok, #state{backend = #backend{module = Backend, state = State}}};
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 %%------------------------------------------------------------------------------
 %% @doc Handle synchronous requests.
@@ -165,95 +193,61 @@ init(_Config = #{}) ->
       Result :: {reply, Reply, State} | {stop, Reason, State},
       Reply :: term(),
       Reason :: term().
-handle_call(info, _, #state{timeseries = All} = State) ->
+handle_call(summarize, _, #state{backend = Backend1} = State) ->
     ?LOG_NOTICE(#{msg => "Get info"}),
 
-    Info = maps:map(fun(_Token, Timeseries) ->
-                            timeseries:info(Timeseries)
-                    end, All),
+    {Result, Backend2} = backend_apply(Backend1, summarize, []),
 
-    {reply, {ok, Info}, State};
+    {reply, Result, State#state{backend = Backend2}};
 
-handle_call({info, Token}, _, #state{timeseries = All} = State) ->
+handle_call({info, Token}, _, #state{backend = Backend1} = State) ->
     ?LOG_NOTICE(#{msg => "Get info",
                   token => Token}),
 
-    case maps:find(Token, All) of
-        {ok, Timeseries} ->
-            {reply, {ok, timeseries:info(Timeseries)}, State};
-        error ->
-            {reply, {error, unknown_token}, State}
-    end;
+    {Result, Backend2} = backend_apply(Backend1, info, [Token]),
 
-handle_call({save, Timeseries}, _, #state{timeseries = All1} = State) ->
+    {reply, Result, State#state{backend = Backend2}};
+
+handle_call({save, Timeseries}, _, #state{backend = Backend1} = State) ->
+    ?LOG_NOTICE(#{msg => "Save",
+                  token => timeseries:token(Timeseries)}),
+
     case timeseries:is_valid(Timeseries) of
         true ->
-            Token = timeseries:token(Timeseries),
-            case maps:is_key(Token, All1) of
-                false ->
-                    All2 = All1#{Token => Timeseries},
-                    {reply, ok, State#state{timeseries = All2}};
-                true ->
-                    {reply, {error, token_already_exist}, State}
-            end;
+            {Result, Backend2} = backend_apply(Backend1, save, [Timeseries]),
+            {reply, Result, State#state{backend = Backend2}};
+
         false ->
             {reply, {error, invalid_timeseries}, State}
     end;
 
-handle_call({load, Token}, _, #state{timeseries = All} = State) ->
+handle_call({load, Token}, _, #state{backend = Backend1} = State) ->
     ?LOG_NOTICE(#{msg => "Load",
                   token => Token}),
 
-    case maps:find(Token, All) of
-        {ok, Timeseries} ->
-            {reply, {ok, Timeseries}, State};
-        error ->
-            {reply, {error, unknown_token}, State}
-    end;
+    {Result, Backend2} = backend_apply(Backend1, load, [Token]),
+    {reply, Result, State#state{backend = Backend2}};
 
-handle_call({new, Token}, _, #state{timeseries = All1} = State) ->
+handle_call({new, Token}, _, #state{backend = Backend1} = State) ->
     ?LOG_NOTICE(#{msg => "New",
                   token => Token}),
 
-    case maps:is_key(Token, All1) of
-        false ->
-            Timeseries = timeseries:new(Token),
-            All2 = All1#{Token => Timeseries},
-            {reply, ok, State#state{timeseries = All2}};
-        true ->
-            {reply, {error, token_already_exist}, State}
-    end;
+    Timeseries = timeseries:new(Token),
+    {Result, Backend2} = backend_apply(Backend1, save, [Timeseries]),
+    {reply, Result, State#state{backend = Backend2}};
 
-handle_call({add, Token, Event}, _, #state{timeseries = All1} = State) ->
+handle_call({add, Token, Event}, _, #state{backend = Backend1} = State) ->
     ?LOG_NOTICE(#{msg => "Add",
                   token => Token,
                   event => Event}),
 
-    case maps:find(Token, All1) of
-        {ok, Timeseries1} ->
-            case timeseries:is_valid(Event) of
-                true ->
-                    Timeseries2 = timeseries:add(Timeseries1, Event),
-                    All2 = All1#{Token => Timeseries2},
-                    {reply, ok, State#state{timeseries = All2}};
-                false ->
-                    {reply, {error, invalid_event}, State}
-            end;
-        error ->
-            {reply, {error, unknown_token}, State}
-    end;
+    case timeseries:is_valid(Event) of
+        true ->
+            {Result, Backend2} = backend_apply(Backend1, add, [Token, Event]),
+            {reply, Result, State#state{backend = Backend2}};
 
-handle_call({finish, Token}, _, #state{timeseries = All1} = State) ->
-    ?LOG_NOTICE(#{msg => "Finish",
-                  token => Token}),
-
-    case maps:find(Token, All1) of
-        {ok, Timeseries1} ->
-            Timeseries2 = timeseries:finish(Timeseries1),
-            All2 = All1#{Token => Timeseries2},
-            {reply, ok, State#state{timeseries = All2}};
-        error ->
-            {reply, {error, unknown_token}}
+        false ->
+            {reply, {error, invalid_event}, State}
     end;
 
 handle_call(Call, From, State) ->
@@ -316,3 +310,22 @@ code_change(OldVersion, State, Extra) ->
                   old_version => OldVersion,
                   extra => Extra}),
     {ok, State}.
+
+%%%=============================================================================
+%%% Private functions
+%%%=============================================================================
+
+%%------------------------------------------------------------------------------
+%% @doc Apply backend call
+%% @end
+%%------------------------------------------------------------------------------
+-spec backend_apply(Backend, Function, Arguments) -> Result when
+      Backend :: backend(),
+      Function :: atom(),
+      Arguments :: [term()],
+      Result :: {term(), Backend}.
+backend_apply(#backend{module = Module, state = State1} = Backend,
+              Function,
+              Arguments) ->
+    {Result, State2} = erlang:apply(Module, Function, Arguments ++ [State1]),
+    {Result, Backend#backend{state = State2}}.

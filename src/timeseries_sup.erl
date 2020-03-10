@@ -11,6 +11,8 @@
 
 -behaviour(supervisor).
 
+-include("timeseries.hrl").
+
 %%%=============================================================================
 %%% Exports
 %%%=============================================================================
@@ -49,7 +51,9 @@ start_link() ->
 %% @end
 %%------------------------------------------------------------------------------
 init([]) ->
+    Config = timeseries_server:load_config(),
+
     ChildSpecs = [#{id => timeseries_server,
-                    start => {timeseries_server, start_link, []}}
+                    start => {timeseries_server, start_link, [Config]}}
                  ],
     {ok, {{one_for_all, 0, 1}, ChildSpecs}}.

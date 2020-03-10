@@ -6139,7 +6139,7 @@ var $author$project$Main$downloadInfo = $elm$http$Http$get(
 	});
 var $author$project$Main$init = function (_v0) {
 	return _Utils_Tuple2(
-		{timeseries: $elm$core$Dict$empty},
+		{timeseries: _List_Nil},
 		$author$project$Main$downloadInfo);
 };
 var $elm$core$Platform$Sub$batch = _Platform_batch;
@@ -6149,14 +6149,26 @@ var $author$project$Main$subscriptions = function (model) {
 };
 var $elm$core$Platform$Cmd$batch = _Platform_batch;
 var $elm$core$Platform$Cmd$none = $elm$core$Platform$Cmd$batch(_List_Nil);
+var $author$project$TimeseriesInfo$timeseriesInfo = F2(
+	function (name, length) {
+		return {length: length, name: name};
+	});
 var $author$project$Main$update = F2(
 	function (message, model) {
 		if (message.a.$ === 'Ok') {
 			var info = message.a.a;
+			var xxx = A2(
+				$elm$core$List$map,
+				function (_v1) {
+					var string = _v1.a;
+					var length = _v1.b;
+					return A2($author$project$TimeseriesInfo$timeseriesInfo, string, length);
+				},
+				$elm$core$Dict$toList(info));
 			return _Utils_Tuple2(
 				_Utils_update(
 					model,
-					{timeseries: info}),
+					{timeseries: xxx}),
 				$elm$core$Platform$Cmd$none);
 		} else {
 			return _Utils_Tuple2(model, $elm$core$Platform$Cmd$none);
@@ -6172,49 +6184,53 @@ var $elm$html$Html$Attributes$stringProperty = F2(
 	});
 var $elm$html$Html$Attributes$class = $elm$html$Html$Attributes$stringProperty('className');
 var $elm$html$Html$div = _VirtualDom_node('div');
+var $author$project$ViewCommon$viewContainer = function (rows) {
+	return A2(
+		$elm$html$Html$div,
+		_List_fromArray(
+			[
+				$elm$html$Html$Attributes$class('container')
+			]),
+		rows);
+};
 var $elm$virtual_dom$VirtualDom$text = _VirtualDom_text;
 var $elm$html$Html$text = $elm$virtual_dom$VirtualDom$text;
-var $author$project$Main$viewRowCell = function (string) {
+var $author$project$ViewCommon$viewCell = function (value) {
 	return A2(
 		$elm$html$Html$div,
 		_List_fromArray(
 			[
-				$elm$html$Html$Attributes$class('row-cell')
+				$elm$html$Html$Attributes$class('cell')
 			]),
 		_List_fromArray(
 			[
-				$elm$html$Html$text(string)
+				$elm$html$Html$text(value)
 			]));
 };
-var $author$project$Main$viewTimeseries = function (_v0) {
-	var name = _v0.a;
-	var length = _v0.b;
+var $author$project$ViewCommon$viewRow = function (cells) {
 	return A2(
 		$elm$html$Html$div,
 		_List_fromArray(
 			[
-				$elm$html$Html$Attributes$class('item')
+				$elm$html$Html$Attributes$class('row')
 			]),
-		A2(
-			$elm$core$List$map,
-			$author$project$Main$viewRowCell,
-			_List_fromArray(
-				[
-					name,
-					$elm$core$String$fromInt(length)
-				])));
+		cells);
 };
-var $author$project$Main$view = function (model) {
-	return A2(
-		$elm$html$Html$div,
+var $author$project$TimeseriesInfo$viewTimeseriesInfo = function (_v0) {
+	var name = _v0.name;
+	var length = _v0.length;
+	return $author$project$ViewCommon$viewRow(
 		_List_fromArray(
 			[
-				$elm$html$Html$Attributes$class('items')
-			]),
-		A2(
-			$elm$core$List$map,
-			$author$project$Main$viewTimeseries,
-			$elm$core$Dict$toList(model.timeseries)));
+				$author$project$ViewCommon$viewCell(name),
+				$author$project$ViewCommon$viewCell(
+				$elm$core$String$fromInt(length))
+			]));
+};
+var $author$project$Main$view = function (_v0) {
+	var timeseries = _v0.timeseries;
+	return $author$project$ViewCommon$viewContainer(
+		A2($elm$core$List$map, $author$project$TimeseriesInfo$viewTimeseriesInfo, timeseries));
 };
 var $author$project$Main$main = $elm$browser$Browser$element(
 	{init: $author$project$Main$init, subscriptions: $author$project$Main$subscriptions, update: $author$project$Main$update, view: $author$project$Main$view});

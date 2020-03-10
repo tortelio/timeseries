@@ -51,14 +51,17 @@ init(Request, []) ->
             ?LOG_ERROR(#{msg => "Missing token"}),
             {error, Request};
         Token ->
+            State = #state{token = Token},
             case timeseries_server:new(Token) of
                 ok ->
-                    State = #state{token = Token},
+                    ?LOG_INFO(#{msg => "Saving timeseries",
+                                token => Token}),
                     {cowboy_websocket, Request, State, ?WS_OPTIONS};
-                {error, token_already_exist} ->
+
+                {error, token_already_exist} = Error ->
                     ?LOG_ERROR(#{msg => "Token is already exist",
                                  token => Token}),
-                    {error, Request}
+                    {ok, cowboy_req:reply(409, #{}, <<>>, Request), State}
             end
     end.
 
@@ -89,9 +92,6 @@ websocket_handle({_, Chunk}, #state{token = Token} = State) ->
     try jiffy:decode(Chunk, [return_maps]) of
         #{<<"t">> := _} = Event ->
             ok = timeseries_server:add(Token, Event),
-            {ok, State};
-        <<"end">> ->
-            ok = timeseries_server:finish(Token),
             {ok, State}
     catch
         Class:Exception:_StackTrace ->
