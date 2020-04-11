@@ -1,0 +1,63 @@
+div.header {
+  text-align: center;
+  font-size: 110%;
+
+  border-style: none none solid none;
+  border-width: 5px;
+  border-color: rgb(89, 51, 204);}
+
+h2 {
+  text-align: center;}
+
+div.header h1 {
+  margin: 10px 10px 10px 10px;}
+
+.about { display: flex; }
+
+#description {
+  flex: 1; /* flex: proportion in children */
+  min-width: 80px;
+  margin: 10px}
+
+#config {
+  padding: 10px;
+  margin: 10px;
+  border-style: solid;
+  border-width: 3px;
+  border-color: rgb(89, 51, 204);
+  flex: 3;}
+
+#dataset {
+  min-width: 80px;
+  flex: 1; }
+  
+.chartconfig {
+  margin: 10px;
+  display: flex;}
+
+.config {
+  margin: 10px;
+  display: flex;}
+
+div.select {
+  width: 100px;
+  margin-left: 10px;
+  /*margin-left: calc(66.66% + (33.33% - 80px) / 2 );*/}
+
+div.short_select {
+  width: 50px; }
+
+.float_left { float: left; }
+.float_right { float: right; }
+
+button {
+  margin: 5px;
+  padding: 5px;
+  border: 1px solid grey;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  border-radius: 8px; }
+
+button.active {
+   border: 2px solid rgb(89, 51, 204); }
