@@ -28,6 +28,7 @@ import LineChart.Interpolation as Interpolation
 import LineChart.Junk as Junk exposing (..)
 import LineChart.Legends as Legends
 import LineChart.Line as Line
+import List.Extra exposing (unique)
 import Round exposing (round)
 import String
 import Svg
@@ -47,6 +48,7 @@ type alias Model = { datasets : Dict String ( List ( Dict String Float ) )
 type alias Data = Dict String.String Float
 
 type alias Point = { x : Float, y : Float }
+type alias Info = { name : String, length : Int }
 
 type alias ChartConfig = { datasetName : String
                          , xDim : String
@@ -607,6 +609,16 @@ update msg model =
 
 view : Model -> Html Msg
 view model =
+  let
+    currentDatasets = unique ( List.map .datasetName model.config )
+    toDict datasetName =
+      let
+         mLength = Dict.get datasetName model.timeseriesInfo
+         length =  Maybe.withDefault 0 mLength 
+      in
+      { name = datasetName, length = length } 
+    timeseriesInfo = List.map toDict currentDatasets
+  in
   Html.div []
     [ div [ class "header" ]
           [ h1 [] [ text "Timeseries Visualization" ] ]
@@ -615,7 +627,7 @@ view model =
            , configuration model
            , div [ id "dataset" ]
                  [ h2 [] [ text "Datasets" ]
-                 , div [] [ text "info..." ]
+                 , datasetInfo timeseriesInfo
                  ]
           ]
     , charts model
@@ -694,6 +706,24 @@ dataOption datasetName opt =
 dimOption : String -> String -> Html Msg
 dimOption selectedDim opt =
   option [ value opt, selected ( opt == selectedDim ) ] [ text opt ]
+
+datasetInfo : List Info -> Html Msg
+datasetInfo info =
+  let
+    toTableRow infoRow =
+      tr []
+         [ td [] [ text infoRow.name ]
+         , td [] [ text ( String.fromInt infoRow.length )]
+         ]
+  in
+  table []
+    ( List.concat [ [ thead []
+                          [ th [] [text "Name"]
+                          , th [] [text "Length"]
+                          ]
+                  ]
+                  , List.map toTableRow info
+                  ] )
 
 means : List Float -> List Float
 means x =
@@ -820,7 +850,7 @@ chart datasets width twoColumns chartIdx config =
           , junk = 
               Junk.custom <| \system ->
                 { below = [ zoomRect config system ]
-                , above = sectionBand currentPoints config system
+                , above = sectionBand ( width, height ) currentPoints config system
                 , html = []
                 }
           , grid = Grid.default
@@ -942,8 +972,8 @@ events idx =
       , Events.onWithOptions "mouseleave" (options True)  (LeaveContainer idx) Events.getData
       ]
 
-sectionBand : List Point -> ChartConfig -> Coordinate.System -> List ( Svg.Svg msg )
-sectionBand currentPoints config system =
+sectionBand : ( Int, Int ) -> List Point -> ChartConfig -> Coordinate.System -> List ( Svg.Svg msg )
+sectionBand ( height, width ) currentPoints config system =
   if config.thereIsHint then
     let
       dist idx data_point = { idx = idx, dist = (data_point.x - config.current.x)^2 + (data_point.y - config.current.y)^2, point = data_point }
@@ -957,8 +987,9 @@ sectionBand currentPoints config system =
             Nothing -> ( config.current, Colors.black )
       (hint_x, hint_y) = hintOfPoint config hinted
       label_x = system.x.max + (system.x.max - system.x.min)*0.05
-      label_y = Basics.min hinted.y (system.y.max * 0.9)
-      label_y_down = label_y - (system.y.max - system.y.min)*0.05
+      labelHeight = ( system.y.max - system.y.min ) / ( toFloat height ) * 50 
+      label_y = Basics.min hinted.y (system.y.max - 2 * labelHeight )
+      label_y_down = label_y - labelHeight
     in
     [ Junk.labelAt system
         label_x label_y
