@@ -34,7 +34,7 @@ timeseries(dummy) ->
   Ts7;
 
 timeseries(dummy2) ->
-  Ts1 = timeseries:new(<<"dummy">>),
+  Ts1 = timeseries:new(<<"dummy2">>),
   F = fun(I, Ts) ->
               timeseries:add(Ts, #{<<"t">> => I,  <<"x">> => 2*I})
       end,

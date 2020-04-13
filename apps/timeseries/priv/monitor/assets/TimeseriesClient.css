@@ -60,4 +60,12 @@ button {
   border-radius: 8px; }
 
 button.active {
-   border: 2px solid rgb(89, 51, 204); }
+  border: 2px solid rgb(89, 51, 204); }
+
+table {
+  border-collapse: collapse;
+}
+
+th, td {
+  border: 1px solid black;
+  padding: 5px; }
