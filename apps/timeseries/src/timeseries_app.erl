@@ -49,6 +49,8 @@ start(_StartType, _StartArgs) ->
          % monitor
          {"/index.html",        cowboy_static,
           {file, "priv/monitor/index.html"}},
+         {"/TimeseriesClient.html", cowboy_static,
+          {file, "priv/monitor/TimeseriesClient.html"}},
          {"/assets/[...]",      cowboy_static,
           {dir, "priv/monitor/assets"}},
 

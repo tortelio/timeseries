@@ -1,17 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <title>Timeseries</title>
+    <title>Timeseries Visualization</title>
     <meta charset="utf-8">
     <link rel="stylesheet" type="text/css" href="assets/TimeseriesClient.css" media="screen">
   </head>
   <body>
     <pre id="elm"></pre>
-    <script src="assets/Index.js"></script>
+    <script src="assets/TimeseriesClient.js"></script>
     <script type="text/javascript">
-      var app = Elm.Index.init({ node: document.getElementById("elm") });
-      app.ports.save.subscribe(function(value) {
-        document.cookie = "dataset=".concat(value);
+      var app = Elm.TimeseriesClient.init({ node: document.getElementById("elm") });
+      app.ports.doload.subscribe(function() {
+        app.ports.load.send(document.cookie);
       });
     </script>
   </body>

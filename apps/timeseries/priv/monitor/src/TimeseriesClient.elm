@@ -1,14 +1,16 @@
-module TimeseriesClient exposing (..)
+port module TimeseriesClient exposing (..)
 
-import Browser
+import Browser exposing ( element )
 import Browser.Dom exposing ( Viewport, getViewport )
 import Browser.Events exposing ( onResize )
-import Dict exposing (Dict)
-import Html exposing (..)
-import Html.Attributes exposing (..)
-import Html.Events exposing (on, onClick, targetValue)
-import Http
-import Json.Decode as Json
+import Dict exposing ( Dict )
+import Html exposing ( div, h1, h2, p, text, table, td, tr, th, thead,
+                       button, select, option,
+                       Html )
+import Html.Attributes exposing ( id, class , selected, value)
+import Html.Events exposing ( on, onClick, targetValue )
+import Http exposing ( get, expectJson, expectString, Error )
+import Json.Decode exposing ( dict, int, float, list, decodeString, map )
 import LineChart
 import LineChart.Area as Area
 import LineChart.Axis as Axis
@@ -25,35 +27,46 @@ import LineChart.Dots as Dots
 import LineChart.Events as Events
 import LineChart.Grid as Grid
 import LineChart.Interpolation as Interpolation
-import LineChart.Junk as Junk exposing (..)
+import LineChart.Junk as Junk
 import LineChart.Legends as Legends
 import LineChart.Line as Line
-import List.Extra exposing (unique)
-import Round exposing (round)
-import String
-import Svg
-import Svg.Attributes as SVGA
-import Time
-import Task
+import List.Extra exposing ( unique )
+import Round exposing ( round )
+import Svg exposing ( Svg )
+import Svg.Attributes exposing ( fill )
+import Time exposing ( Posix, every )
+import Task exposing ( perform )
 
+-- width of sliding window in animation
+n : Int
 n = 3
 
-type alias Model = { datasets : Dict String ( List ( Dict String Float ) )
+-- ports to access the cookie
+port loadcookie : ( String -> msg ) -> Sub msg
+port doloadcookie : () -> Cmd msg
+
+-- types, type aliases
+
+-- datapoint: values of different dimensions
+type alias Data = Dict String Float
+
+-- timeseries: list of data points width the same keys
+type alias Timeseries = List Data
+
+type alias Point = { x : Float, y : Float }
+
+type alias Model = { timeseries : Dict String Timeseries
                    , columns: ColumnCount
                    , config: List ChartConfig
                    , timeseriesInfo : Dict String Int
                    , width : Int
                    }
 
-type alias Data = Dict String.String Float
-
-type alias Point = { x : Float, y : Float }
-type alias Info = { name : String, length : Int }
-
-type alias ChartConfig = { datasetName : String
+type alias ChartConfig = { timeseriesName : String
                          , xDim : String
                          , yDim : String
                          , current : Point
+                         -- last == Nothing means: mouse button up
                          , last : Maybe Point
                          , thereIsHint : Bool
                          , xMin : Float
@@ -61,543 +74,213 @@ type alias ChartConfig = { datasetName : String
                          , yMin : Float
                          , yMax : Float
                          , mouseMode : MouseMode
-                         , mouseButton : UpDown
                          , derivated : Bool
                          , animationIdx : Int
                          , paused : Bool
-                         , animationType : AnimationType }
-
+                         , animationType : AnimationType
+                         }
 
 type ColumnCount = One | Two
 type MouseMode = Drag | Zoom
-type UpDown = Up | Down
 type AnimationType = None | PointByPoint | SlidingWindow
 
-type Msg = NewDatasetName Int String
-         | NewXAxis Int String
-         | NewYAxis Int String
-         | AddChart
-         | RemoveChart Int
-         | GotInfo  ( Result Http.Error ( Dict String Int ) )
-         | GotDataset  String ( Result Http.Error String )
-         | OneColumn
-         | TwoColumns
-         | Hold Int Point
-         | Move Int Point
-         | Drop Int Point
-         | LeaveChart Int Point
-         | LeaveContainer Int Point
-         | ZoomIn Int
-         | ZoomOut Int
-         | DragMode Int
-         | ZoomMode Int
-         | ResetAxis Int
-         | PlotDerivate Int
-         | PlotOriginal Int
-         | StartSlidingWindow Int
-         | StartPointByPoint Int
-         | PauseContinue Int
-         | StopAnimation Int
-         | Tick Time.Posix
-         | GetViewport Viewport
-         | Resized Int
+type Msg
+-- for communication with server
+  = GotInfo  ( Result Error ( Dict String Int ) )
+  | GotTimeseries  String ( Result Error String )
+-- for communicattion with js (subscriptions)
+  | Tick Posix
+  | GetViewport Viewport
+  | Resized Int
+  | CookieLoaded String
+-- for chart config of what to plot
+  | NewTimeseriesName Int String
+  | NewXAxis Int String
+  | NewYAxis Int String
+  | AddChart
+  | RemoveChart Int
+  | PlotDerivate Int
+  | PlotOriginal Int
+  | OneColumn
+  | TwoColumns
+-- for chart config of how to plot
+  | ZoomIn Int
+  | ZoomOut Int
+  | DragMode Int
+  | ZoomMode Int
+  | ResetAxis Int
+  | StartSlidingWindow Int
+  | StartPointByPoint Int
+  | PauseContinue Int
+  | StopAnimation Int
+-- for events of charts
+  | Hold Int Point
+  | Move Int Point
+  | Drop Int Point
+  | LeaveChart Int Point
+  | LeaveContainer Int Point
+
+toMaybe : a -> Maybe a
+toMaybe x = ( List.head [ x ] )
+
+-- MAIN
 
 main : Program () Model Msg
 main =
-  Browser.element { init = init
-                  , update = update
-                  , view = view
-                  , subscriptions = subscriptions }
+  element { init = init
+          , update = update
+          , view = view
+          , subscriptions = subscriptions
+          }
 
-cmaybe x = ( List.head [ x ] )
+-- initializations
 
 init : flags -> ( Model, Cmd Msg )
-init _ = ( { datasets = Dict.empty
+init _ = ( { timeseries = Dict.empty
            , columns = One
            , config = [ initChartConfig Nothing Nothing "" [] ]
            , timeseriesInfo = Dict.empty
            , width = 0
            }
-         , Cmd.batch [ downloadInfo, Task.perform GetViewport getViewport]
+         , Cmd.batch [ doloadcookie ()
+                     , downloadInfo
+                     , perform GetViewport getViewport
+                     ]
          )
 
-initChartConfig : Maybe String -> Maybe String -> String -> List Data -> ChartConfig
-initChartConfig dim1 dim2 name data =
+initChartConfig : Maybe String
+               -> Maybe String
+               -> String
+               -> Timeseries
+               -> ChartConfig
+initChartConfig mXDim mYDim name timeseries =
   let
-    sample_data = ( List.head data )
+    sampleData = ( List.head timeseries )
     dims =
-      case sample_data of
+      case sampleData of
         Nothing -> []
         Just sample -> Dict.keys sample
-    dim_x = case dim1 of
-              Just dim -> dim
-              Nothing ->Maybe.withDefault "t" ( List.head dims ) -- default t needed in case of empty dataset
-    dim_y = case dim2 of
-              Just dim -> dim
-              Nothing -> Maybe.withDefault dim_x ( List.head ( List.drop 1 dims) )
-    m_dim_x_points = List.map ( Dict.get dim_x ) data
-    dim_x_points = List.map (Maybe.withDefault 0) m_dim_x_points
-    m_dim_y_points = List.map ( Dict.get dim_y ) data
-    dim_y_points = List.map (Maybe.withDefault 0) m_dim_y_points
+
+    xDim = Maybe.withDefault "" mXDim
+    yDim = Maybe.withDefault "" mYDim
+    initXDim =
+      if mXDim == Nothing || not ( List.member xDim dims ) then
+        -- default t needed in case of empty dataset
+        Maybe.withDefault "t" ( List.head dims )
+      else
+        xDim
+    initYDim =
+      if mYDim == Nothing || not ( List.member yDim dims ) then
+        Maybe.withDefault initXDim ( List.head ( List.drop 1 dims ) )
+      else
+        yDim
+    mXDimValues = List.map ( Dict.get initXDim ) timeseries
+    xDimValues = List.map ( Maybe.withDefault 0 ) mXDimValues
+    mYDimValues = List.map ( Dict.get initYDim ) timeseries
+    yDimValues = List.map (Maybe.withDefault 0 ) mYDimValues
   in
-  { datasetName = name
-  , xDim = dim_x
-  , yDim = dim_y
+  { timeseriesName = name
+  , xDim = initXDim
+  , yDim = initYDim
   , current = Point 0 0
   , last = Nothing
   , thereIsHint = False
-  , xMin = Maybe.withDefault 0 (List.minimum dim_x_points)
-  , xMax = Maybe.withDefault 1 (List.maximum dim_x_points)
-  , yMin = Maybe.withDefault 0 (List.minimum dim_y_points)
-  , yMax = Maybe.withDefault 1 (List.maximum dim_y_points)
+  , xMin = Maybe.withDefault 0 (List.minimum xDimValues)
+  , xMax = Maybe.withDefault 1 (List.maximum xDimValues)
+  , yMin = Maybe.withDefault 0 (List.minimum yDimValues)
+  , yMax = Maybe.withDefault 1 (List.maximum yDimValues)
   , mouseMode = Zoom
-  , mouseButton = Up
   , derivated = False
   , animationIdx = 0
   , paused = False
   , animationType = None
   }
 
+emptyChartConfig : ChartConfig
+emptyChartConfig = initChartConfig Nothing Nothing "" []
+
+-- UPDATE
+
+updateConfig : Model
+           -> ( Int, ChartConfig -> ChartConfig )
+           -> Model
+updateConfig model ( chartIdx, updateChartConfig ) =
+  let
+    change idx chartConfig =
+      if idx == chartIdx then
+        updateChartConfig chartConfig
+      else
+        chartConfig
+  in
+  { model | config = List.indexedMap change model.config }
+
 update : Msg -> Model -> ( Model, Cmd Msg )
-update msg model = 
+update msg model =
   case msg of
-    NewDatasetName chartIdx newDatasetName ->
-      let
-        change idx config = 
-          if idx == chartIdx then
-            let
-              new_data = Maybe.withDefault [] ( Dict.get newDatasetName model.datasets )
-              new_sample_data = ( List.head new_data )
-              new_dims =
-                case new_sample_data of
-                  Nothing -> []
-                  Just sample -> Dict.keys sample
-            in
-            case ( List.member config.xDim new_dims ) &&
-                 ( List.member config.yDim new_dims ) of
-              False -> initChartConfig Nothing Nothing newDatasetName new_data
-              True -> initChartConfig ( cmaybe config.xDim ) ( cmaybe config.yDim ) newDatasetName new_data
-          else
-            config
-        cmd =
-          case Dict.member newDatasetName model.datasets of
-            True -> Cmd.none
-            False -> downloadDataset newDatasetName
-      in
-      ( { model | config = List.indexedMap change model.config }
-      , cmd
-      )
-    NewXAxis chartIdx newXAxis ->
-      let
-        change idx config =  
-          if idx == chartIdx then
-            let
-              mDataset = Dict.get config.datasetName model.datasets
-              dataset = Maybe.withDefault [] mDataset
-              data = points dataset { config | xDim = newXAxis }
-              data_x = List.map .x data
-            in
-             { config | xDim = newXAxis
-                      , xMin = Maybe.withDefault 0 (List.minimum data_x)
-                      , xMax = Maybe.withDefault 1 (List.maximum data_x)
-                      }
-          else
-            config
-      in
-      ( { model | config = List.indexedMap change model.config}
-      , Cmd.none
-      )
-    NewYAxis chartIdx newYAxis -> 
-      let
-        change idx config = 
-          if idx == chartIdx then
-            let
-              mDataset = Dict.get config.datasetName model.datasets
-              dataset = Maybe.withDefault [] mDataset
-              data = points dataset { config | yDim = newYAxis }
-              data_y = List.map .y data
-            in
-            { config | yDim = newYAxis 
-                     , yMin = Maybe.withDefault 0 (List.minimum data_y)
-                     , yMax = Maybe.withDefault 1 (List.maximum data_y)
-                      }
-          else
-            config
-      in
-      ( { model | config = List.indexedMap change model.config}
-      , Cmd.none
-      )
-    AddChart ->
-      let
-        lastConfig = List.head ( List.reverse model.config )
-        newDatasetName =
-          case lastConfig of
-            Nothing -> Maybe.withDefault "" ( List.head (Dict.keys model.timeseriesInfo) )
-            Just config -> config.datasetName 
-        newDataset = Maybe.withDefault [] ( Dict.get newDatasetName model.datasets ) 
-      in
-      ( { model | config = List.append model.config [ initChartConfig Nothing Nothing newDatasetName newDataset ] }
-      , Cmd.none
-      )
-    RemoveChart idx ->
-      let
-        new_config = List.append ( List.take idx model.config )
-                                 ( List.drop ( idx + 1 ) model.config )
-      in
-      ( { model | config = new_config }
-      , Cmd.none
-      )
+-- for communication with server
     GotInfo ( Ok info ) ->
-      case Dict.isEmpty model.timeseriesInfo of
-        False ->
-          ( { model | timeseriesInfo = info }
-          , Cmd.none )
-        True -> 
-          case List.head ( Dict.keys info ) of
-            Nothing ->
-              ( { model | timeseriesInfo = info }
-              , Cmd.none )
-            Just datasetName ->
-              update ( NewDatasetName 0 datasetName )
-                     { model | timeseriesInfo = info }
-    GotInfo ( Err _ ) ->
-      ( model
-      , Cmd.none ) -- TODO
-    GotDataset name ( Ok dataString ) ->
+      case List.head ( Dict.keys info ) of
+        Nothing -> ( { model | timeseriesInfo = info }, Cmd.none )
+        -- if there is at least one timeseries on the server
+        Just timeseriesName ->
+          let
+            mFirstConfig = List.head model.config
+            firstConfig = Maybe.withDefault emptyChartConfig mFirstConfig
+          in
+          -- if there was no cookie about inital timeseriesName
+          if firstConfig.timeseriesName == "" then
+            update ( NewTimeseriesName 0 timeseriesName )
+                   { model | timeseriesInfo = info }
+          else
+            ( { model | timeseriesInfo = info }, Cmd.none )
+    GotInfo ( Err _ ) -> ( model, Cmd.none )
+    GotTimeseries name ( Ok timeseriesString ) ->
       let
-        decoder = Json.list ( Json.dict Json.float )
-        decoded = Json.decodeString decoder dataString
-        dataset = case decoded of
-                    Ok data -> data
-                    Err _ -> []
+        -- using json decode
+        decoder = list ( dict float )
+        decoded = decodeString decoder timeseriesString
+        timeseries = case decoded of
+                       Ok data -> data
+                       Err _ -> []
         change config =
-          if config.datasetName == name then
-            initChartConfig Nothing Nothing name dataset
+          -- in case it is the first downloaded timeseries
+          if config.timeseriesName == name || config.timeseriesName == "" then
+            initChartConfig Nothing Nothing name timeseries
           else
-            config
+             config
       in
-      ( { model | datasets = Dict.insert name dataset model.datasets
-                , config =  List.map change model.config 
+      ( { model | timeseries = Dict.insert name timeseries model.timeseries
+                , config =  List.map change model.config
         }
-      , Cmd.none )
-    GotDataset name ( Err _ ) ->
-      ( model
-      , Cmd.none ) -- TODO
-    OneColumn ->  ( { model | columns = One }, Cmd.none )
-    TwoColumns -> ( { model | columns = Two }, Cmd.none )
-    Hold chartIdx point ->
-      let
-        change idx config =
-          if idx == chartIdx then
-            { config | last = ( List.head [ point ] ) -- last = point (rest is to make it Maybe Point)
-                    , mouseButton = Down
-            }
-          else
-            config
-      in
-      ( { model | config = List.indexedMap change model.config}
       , Cmd.none
       )
-    Move chartIdx point ->
-      let
-        change idx config =
-          if idx == chartIdx then
-            case config.mouseMode of
-              Zoom -> { config | thereIsHint = True, current = point }
-              Drag ->
-                case config.last of
-                  Nothing -> { config | thereIsHint = True, current = point } -- mouse up <= last == Nothing
-                  Just last -> 
-                    let
-                      currentDistX = last.x - point.x
-                      currentDistY = last.y - point.y
-                    in
-                    { config | thereIsHint = True
-                             , xMin = config.xMin + currentDistX
-                             , xMax = config.xMax + currentDistX
-                             , yMin = config.yMin + currentDistY
-                             , yMax = config.yMax + currentDistY }
-          else
-            config
-      in
-      ( { model | config = List.indexedMap change model.config}
-      , Cmd.none
-      )
-    Drop chartIdx point ->
-      let
-        change idx config =
-          if idx == chartIdx then
-            case config.last of
-              Nothing -> config
-              Just last ->
-                case config.mouseMode of
-                  Drag -> { config | last = Nothing, mouseButton = Up }
-                  Zoom ->
-                    let
-                      xRange = config.xMax - config.xMin
-                      yRange = config.yMax - config.yMin
-                      xDist = abs (last.x - point.x)
-                      yDist = abs (last.y - point.y)
-                    in
-                    case xDist > xRange*0.05 && yDist > yRange*0.05 of
-                      False -> { config | last = Nothing, mouseButton = Up }
-                      True ->
-                        let
-                          sorted_x = List.sort [ last.x, point.x ]
-                          x_from = Maybe.withDefault config.xMin (List.head sorted_x)
-                          x_to = Maybe.withDefault config.xMax (List.head (List.reverse sorted_x))
-                          sorted_y = List.sort [ last.y, point.y ]
-                          y_from = Maybe.withDefault config.yMin (List.head sorted_y)
-                          y_to = Maybe.withDefault config.yMax (List.head (List.reverse sorted_y))
-                        in
-                        { config | xMin = x_from
-                                 , xMax = x_to
-                                 , yMin = y_from
-                                 , yMax = y_to
-                                 , last = Nothing
-                                 , mouseButton = Up
-                        }
-          else
-            config
-      in
-      ( { model | config = List.indexedMap change model.config}
-      , Cmd.none
-      )
-    LeaveChart chartIdx point ->
-      let  
-        change idx config =
-          if idx == chartIdx then
-            { config | thereIsHint = False }
-          else
-            config
-      in
-      ( { model | config = List.indexedMap change model.config}
-      , Cmd.none
-      )
-    LeaveContainer chartIdx point ->
-      let
-        change idx config =
-          if idx == chartIdx then
-            { config | last = Nothing
-                     , mouseButton = Up
-            }
-          else
-            config
-      in
-      ( { model | config = List.indexedMap change model.config}
-      , Cmd.none
-      )
-    ZoomIn chartIdx ->
-      let
-        change idx config =
-          if idx == chartIdx then
-            let
-              xRange = config.xMax - config.xMin
-              yRange = config.yMax - config.yMin
-            in
-            { config | xMin = config.xMin + 0.1*xRange
-                     , xMax = config.xMax - 0.1*xRange
-                     , yMin = config.yMin + 0.1*yRange
-                     , yMax = config.yMax - 0.1*yRange
-            }
-          else
-            config
-      in
-      ( { model | config = List.indexedMap change model.config}
-      , Cmd.none
-      )
-    ZoomOut chartIdx ->
-      let
-        change idx config =
-          if idx == chartIdx then
-            let
-              xRange = (config.xMax - config.xMin) / 0.8 -- so ZoomIn and Out negate each other
-              yRange = (config.yMax - config.yMin) / 0.8
-            in
-            { config | xMin = config.xMin - 0.1*xRange
-                     , xMax = config.xMax + 0.1*xRange
-                     , yMin = config.yMin - 0.1*yRange
-                     , yMax = config.yMax + 0.1*yRange
-            }
-          else
-            config
-      in
-      ( { model | config = List.indexedMap change model.config}
-      , Cmd.none
-      )        
-    DragMode chartIdx ->
-      let
-        change idx config =
-          if idx == chartIdx then
-            { config | mouseMode = Drag }
-          else
-            config
-      in
-      ( { model | config = List.indexedMap change model.config}
-      , Cmd.none
-      )
-    ZoomMode chartIdx ->
-      let
-        change idx config =
-          if idx == chartIdx then
-            { config | mouseMode = Zoom }
-          else
-            config
-      in
-      ( { model | config = List.indexedMap change model.config}
-      , Cmd.none
-      )
-    ResetAxis chartIdx ->
-      let
-        mCurrentConfig = List.head ( List.drop ( chartIdx - 1 ) model.config )
-        currentConfig = Maybe.withDefault ( initChartConfig Nothing Nothing "" [] ) mCurrentConfig
-        mData = Dict.get currentConfig.datasetName model.datasets
-        data = Maybe.withDefault [] mData
-        currentPoints = points data currentConfig
-        x = List.map .x currentPoints
-        y = List.map .y currentPoints
-        change idx config =
-          if idx == chartIdx then
-            { config | xMin = Maybe.withDefault 0 (List.minimum x)
-                     , xMax = Maybe.withDefault 1 (List.maximum x)
-                     , yMin = Maybe.withDefault 0 (List.minimum y)
-                     , yMax = Maybe.withDefault 1 (List.maximum y)
-            }
-          else
-            config
-      in
-      ( { model | config = List.indexedMap change model.config}
-      , Cmd.none
-      )
-    PlotDerivate chartIdx ->
-      let
-        change idx config =
-          if idx == chartIdx then
-            if config.derivated then
-              config
-            else
-              let
-                mData = Dict.get config.datasetName model.datasets
-                data = Maybe.withDefault [] mData
-                currentPoints = points data { config | derivated = True }
-                derivatedY = List.map .y currentPoints
-              in
-              { config | derivated = True
-                       , yMin = Maybe.withDefault 0 ( List.minimum derivatedY )
-                       , yMax = Maybe.withDefault 1 ( List.maximum derivatedY )
-              }
-          else
-            config
-      in
-      ( { model | config = List.indexedMap change model.config}
-      , Cmd.none
-      )
-    PlotOriginal chartIdx ->
-      let
-        change idx config =
-          if idx == chartIdx then
-            if not config.derivated then
-              config
-            else
-              let
-                mData = Dict.get config.datasetName model.datasets
-                data = Maybe.withDefault [] mData
-                currentPoints = points data { config | derivated = False }
-                currentY = List.map .y currentPoints
-              in
-              { config | derivated = False
-                       , yMin = Maybe.withDefault 0 ( List.minimum currentY )
-                       , yMax = Maybe.withDefault 1 ( List.maximum currentY )
-              }
-          else
-            config
-      in
-      ( { model | config = List.indexedMap change model.config}
-      , Cmd.none
-      )
-    StartSlidingWindow chartIdx ->
-       let
-        change idx config =
-          if idx == chartIdx then
-            { config | animationType = SlidingWindow
-                     , animationIdx = -1
-                     , paused = False}
-          else
-            config
-       in
-       ( { model | config = List.indexedMap change model.config}
-        , Cmd.none
-       )
-    StartPointByPoint chartIdx ->
-       let
-        change idx config =
-          if idx == chartIdx then
-            { config | animationType = PointByPoint
-                     , animationIdx = -1
-                     , paused = False}
-          else
-            config
-       in
-       ( { model | config = List.indexedMap change model.config}
-        , Cmd.none
-       )
-    PauseContinue chartIdx ->
-       let
-        change idx config =
-          if idx == chartIdx then
-            let
-              mData = Dict.get config.datasetName model.datasets
-              data = Maybe.withDefault [] mData
-              currentPoints = points data config
-              lastIdx = case config.animationType of
-                          None -> 0
-                          PointByPoint -> List.length currentPoints
-                          SlidingWindow -> ( List.length currentPoints ) - n 
-            in
-            if config.animationIdx == lastIdx then
-              { config | paused = False, animationIdx = -1 }
-            else
-              { config | paused = not config.paused }
-          else
-            config
-       in
-       ( { model | config = List.indexedMap change model.config}
-        , Cmd.none
-       )
-    StopAnimation chartIdx ->
-       let
-        change idx config =
-          if idx == chartIdx then
-            { config | animationType = None}
-          else
-            config
-       in
-       ( { model | config = List.indexedMap change model.config}
-        , Cmd.none
-       )
+    GotTimeseries name ( Err _ ) -> ( model, Cmd.none )
+-- for communicattion with js (subscriptions)
     Tick _ ->
       let
-        change config =
-          let
-            mData = Dict.get config.datasetName model.datasets
-            data = Maybe.withDefault [] mData
-            currentPoints = points data config
-            lastIdx = case config.animationType of
-                        None -> 0
-                        PointByPoint -> List.length currentPoints
-                        SlidingWindow -> ( List.length currentPoints ) - n 
+        change chartConfig =
+          if chartConfig.paused then
+            chartConfig
+          else
+            let
+              mLength = Dict.get chartConfig.timeseriesName model.timeseriesInfo
+              length = Maybe.withDefault 0 mLength
+              currentLength =
+                if chartConfig.derivated then
+                  length - 1
+                else
+                  length
+              lastIdx = case chartConfig.animationType of
+                          None -> 0
+                          PointByPoint -> currentLength
+                          SlidingWindow -> currentLength - n
             in
-            if config.paused then
-              config
+            if chartConfig.animationIdx < lastIdx then
+              { chartConfig | animationIdx = chartConfig.animationIdx + 1 }
             else
-              if config.animationIdx < lastIdx then
-                { config | animationIdx = config.animationIdx + 1}
-              else
-                { config | paused = True}
+              { chartConfig | paused = True}
       in
-      ( { model | config = List.map change model.config}
-        , Cmd.none
-      )
+      ( { model | config = List.map change model.config }, Cmd.none  )
     GetViewport viewport ->
       ( { model | width = Basics.round ( viewport.scene.width * 0.9 ) }
       , Cmd.none
@@ -606,251 +289,552 @@ update msg model =
       ( { model | width = Basics.round ( ( toFloat width ) * 0.9 ) }
       , Cmd.none
       )
+    CookieLoaded value ->
+      let
+        splitted = String.split "=" value
+        mTimeseriesName = List.head ( List.reverse splitted )
+        timeseriesName = Maybe.withDefault "" mTimeseriesName
+      in
+      update ( NewTimeseriesName 0 timeseriesName ) model
+-- for chart config of what to plot
+    NewTimeseriesName chartIdx newTimeseriesName ->
+      let
+        updateChartConfig chartConfig =
+          let
+            mNewTimeseries = Dict.get newTimeseriesName model.timeseries
+            newTimeseries = Maybe.withDefault [] mNewTimeseries
+            sampleData = List.head newTimeseries
+            newDims =
+              case sampleData of
+                 Nothing -> []
+                 Just sample -> Dict.keys sample
+            xDimInNewDims = List.member chartConfig.xDim newDims
+            yDimInNewDims = List.member chartConfig.yDim newDims
+          in
+          if xDimInNewDims && yDimInNewDims then
+            initChartConfig ( toMaybe chartConfig.xDim )
+                            ( toMaybe chartConfig.yDim )
+                            newTimeseriesName
+                            newTimeseries
+          else
+            initChartConfig Nothing Nothing newTimeseriesName newTimeseries
+        cmd =
+          if Dict.member newTimeseriesName model.timeseries then
+            Cmd.none
+          else
+            downloadTimeseries newTimeseriesName
+      in
+      ( updateConfig model ( chartIdx, updateChartConfig ), cmd )
+    NewXAxis chartIdx newXAxis ->
+      let
+        updateChartConfig chartConfig =
+          let
+            mTimeseries = Dict.get chartConfig.timeseriesName model.timeseries
+            timeseries = Maybe.withDefault [] mTimeseries
+            newPoints = points timeseries { chartConfig | xDim = newXAxis }
+            newX = List.map .x newPoints
+          in
+          { chartConfig | xDim = newXAxis
+                        , xMin = Maybe.withDefault 0 ( List.minimum newX )
+                        , xMax = Maybe.withDefault 1 ( List.maximum newX )
+          }
+      in
+        ( updateConfig model ( chartIdx, updateChartConfig ), Cmd.none )
+    NewYAxis chartIdx newYAxis ->
+      let
+        updateChartConfig chartConfig =
+          let
+             mTimeseries = Dict.get chartConfig.timeseriesName model.timeseries
+             timeseries = Maybe.withDefault [] mTimeseries
+             newPoints = points timeseries { chartConfig | yDim = newYAxis }
+             newY = List.map .y newPoints
+          in
+          { chartConfig | yDim = newYAxis
+                        , yMin = Maybe.withDefault 0 ( List.minimum newY )
+                        , yMax = Maybe.withDefault 1 ( List.maximum newY )
+          }
+      in
+        ( updateConfig model ( chartIdx, updateChartConfig ), Cmd.none )
+    AddChart ->
+      let
+        lastConfig = List.head ( List.reverse model.config )
+        newTimeseriesName =
+          case lastConfig of
+            Nothing ->
+              let
+                timeseriesNames = Dict.keys model.timeseriesInfo
+                firstTimeseriesName = List.head timeseriesNames
+              in
+              Maybe.withDefault "" firstTimeseriesName
+            Just config -> config.timeseriesName
+        mNewTimeseries = Dict.get newTimeseriesName model.timeseries
+        newTimeseries = Maybe.withDefault [] mNewTimeseries
+        newChartConfig = initChartConfig Nothing
+                                         Nothing
+                                         newTimeseriesName
+                                         newTimeseries
+      in
+      ( { model | config = List.append model.config [ newChartConfig ] }
+      , Cmd.none
+      )
+    RemoveChart idx ->
+      let
+        newConfig = List.append ( List.take idx model.config )
+                                ( List.drop ( idx + 1 ) model.config )
+      in
+      ( { model | config = newConfig }, Cmd.none )
+    PlotDerivate chartIdx ->
+      let
+        updateChartConfig chartConfig =
+          if chartConfig.derivated then
+            chartConfig
+          else
+            let
+              mTimeseries = Dict.get chartConfig.timeseriesName model.timeseries
+              timeseries = Maybe.withDefault [] mTimeseries
+              newPoints = points timeseries { chartConfig | derivated = True }
+              derivatedY = List.map .y newPoints
+              yMin = Maybe.withDefault 0 ( List.minimum derivatedY )
+              yMax = Maybe.withDefault 1 ( List.maximum derivatedY )
+            in
+            { chartConfig | derivated = True
+                          , yMin = yMin
+                          , yMax = yMax
+            }
+      in
+        ( updateConfig model ( chartIdx, updateChartConfig ), Cmd.none )
+    PlotOriginal chartIdx ->
+      let
+        updateChartConfig chartConfig =
+          if chartConfig.derivated then
+            let
+              mTimeseries = Dict.get chartConfig.timeseriesName model.timeseries
+              timeseries = Maybe.withDefault [] mTimeseries
+              originalPoints = points timeseries
+                                      { chartConfig | derivated = False }
+              originalY = List.map .y originalPoints
+              yMin = Maybe.withDefault 0 ( List.minimum originalY )
+              yMax = Maybe.withDefault 1 ( List.maximum originalY )
+            in
+            { chartConfig | derivated = False
+                          , yMin = yMin
+                          , yMax = yMax
+            }
+          else
+            chartConfig
+      in
+        ( updateConfig model ( chartIdx, updateChartConfig ), Cmd.none )
+    OneColumn ->  ( { model | columns = One }, Cmd.none )
+    TwoColumns -> ( { model | columns = Two }, Cmd.none )
+-- for chart config of how to plot
+    ZoomIn chartIdx ->
+      let
+        updateChartConfig chartConfig =
+          let
+            xRange = chartConfig.xMax - chartConfig.xMin
+            yRange = chartConfig.yMax - chartConfig.yMin
+          in
+          { chartConfig | xMin = chartConfig.xMin + 0.1*xRange
+                        , xMax = chartConfig.xMax - 0.1*xRange
+                        , yMin = chartConfig.yMin + 0.1*yRange
+                        , yMax = chartConfig.yMax - 0.1*yRange
+          }
+      in
+        ( updateConfig model ( chartIdx, updateChartConfig ), Cmd.none )
+    ZoomOut chartIdx ->
+      let
+        updateChartConfig chartConfig =
+          let
+            -- /0.8 => ZoomIn and Out negate each other
+            xRange = (chartConfig.xMax - chartConfig.xMin) / 0.8
+            yRange = (chartConfig.yMax - chartConfig.yMin) / 0.8
+          in
+          { chartConfig | xMin = chartConfig.xMin - 0.1*xRange
+                        , xMax = chartConfig.xMax + 0.1*xRange
+                        , yMin = chartConfig.yMin - 0.1*yRange
+                        , yMax = chartConfig.yMax + 0.1*yRange
+          }
+      in
+        ( updateConfig model ( chartIdx, updateChartConfig ), Cmd.none )
+    DragMode chartIdx ->
+      let
+        updateChartConfig chartConfig = { chartConfig | mouseMode = Drag }
+      in
+        ( updateConfig model ( chartIdx, updateChartConfig ), Cmd.none )
+    ZoomMode chartIdx ->
+      let
+        updateChartConfig chartConfig = { chartConfig | mouseMode = Zoom }
+      in
+        ( updateConfig model ( chartIdx, updateChartConfig ), Cmd.none )
+    ResetAxis chartIdx ->
+      let
+        updateChartConfig chartConfig =
+          let
+            mTimeseries = Dict.get chartConfig.timeseriesName model.timeseries
+            timeseries = Maybe.withDefault [] mTimeseries
+            currentPoints = points timeseries chartConfig
+            currentX = List.map .x currentPoints
+            currentY = List.map .y currentPoints
+          in
+          { chartConfig | xMin = Maybe.withDefault 0 (List.minimum currentX)
+                        , xMax = Maybe.withDefault 1 (List.maximum currentX)
+                        , yMin = Maybe.withDefault 0 (List.minimum currentY)
+                        , yMax = Maybe.withDefault 1 (List.maximum currentY)
+          }
+      in
+        ( updateConfig model ( chartIdx, updateChartConfig ), Cmd.none )
+    StartSlidingWindow chartIdx ->
+      let
+        updateChartConfig chartConfig =
+          { chartConfig | animationType = SlidingWindow
+                        , animationIdx = -1
+                        , paused = False
+          }
+      in
+        ( updateConfig model ( chartIdx, updateChartConfig ), Cmd.none )
+    StartPointByPoint chartIdx ->
+      let
+        updateChartConfig chartConfig =
+          { chartConfig | animationType = PointByPoint
+                        , animationIdx = -1
+                        , paused = False
+          }
+      in
+        ( updateConfig model ( chartIdx, updateChartConfig ), Cmd.none )
+    PauseContinue chartIdx ->
+      let
+        updateChartConfig chartConfig =
+          let
+            mLength = Dict.get chartConfig.timeseriesName model.timeseriesInfo
+            length = Maybe.withDefault 0 mLength
+            currentLength =
+              if chartConfig.derivated then
+                length - 1
+              else
+                length
+            lastIdx = case chartConfig.animationType of
+                        None -> 0
+                        PointByPoint -> currentLength
+                        SlidingWindow -> ( currentLength ) - n
+          in
+          if chartConfig.animationIdx == lastIdx then
+            { chartConfig | paused = False, animationIdx = -1 }
+          else
+            { chartConfig | paused = not chartConfig.paused }
+      in
+        ( updateConfig model ( chartIdx, updateChartConfig ), Cmd.none )
+    StopAnimation chartIdx ->
+      let
+        updateChartConfig chartConfig = { chartConfig | animationType = None}
+      in
+        ( updateConfig model ( chartIdx, updateChartConfig ), Cmd.none )
+-- for events of charts
+    Hold chartIdx point ->
+      let
+        updateChartConfig chartConfig = { chartConfig | last = toMaybe point }
+      in
+        ( updateConfig model ( chartIdx, updateChartConfig ), Cmd.none )
+    Move chartIdx point ->
+      let
+        updateChartConfig chartConfig =
+          case chartConfig.mouseMode of
+            Zoom -> { chartConfig | thereIsHint = True, current = point }
+            Drag ->
+              case chartConfig.last of
+                Nothing -> { chartConfig | thereIsHint = True, current = point }
+                Just last ->
+                  let
+                    currentDistX = last.x - point.x
+                    currentDistY = last.y - point.y
+                  in
+                  { chartConfig | thereIsHint = True
+                                , xMin = chartConfig.xMin + currentDistX
+                                , xMax = chartConfig.xMax + currentDistX
+                                , yMin = chartConfig.yMin + currentDistY
+                                , yMax = chartConfig.yMax + currentDistY
+                  }
+      in
+        ( updateConfig model ( chartIdx, updateChartConfig ), Cmd.none )
+    Drop chartIdx point ->
+      let
+        updateChartConfig chartConfig =
+          case chartConfig.last of
+            Nothing -> chartConfig
+            Just last ->
+              case chartConfig.mouseMode of
+                Drag -> { chartConfig | last = Nothing }
+                Zoom ->
+                  let
+                    xRange = chartConfig.xMax - chartConfig.xMin
+                    yRange = chartConfig.yMax - chartConfig.yMin
+                    xDist = abs (last.x - point.x)
+                    yDist = abs (last.y - point.y)
+                  in
+                  if xDist > xRange*0.05 && yDist > yRange*0.05 then
+                    let
+                      xFrom = Basics.min last.x point.x
+                      xTo = Basics.max last.x point.x
+                      yFrom = Basics.min last.y point.y
+                      yTo = Basics.max last.y point.y
+                    in
+                    { chartConfig | xMin = xFrom
+                                  , xMax = xTo
+                                  , yMin = yFrom
+                                  , yMax = yTo
+                                  , last = Nothing
+                    }
+                  else
+                    { chartConfig | last = Nothing }
+      in
+        ( updateConfig model ( chartIdx, updateChartConfig ), Cmd.none )
+    LeaveChart chartIdx point ->
+      let
+        updateChartConfig chartConfig = { chartConfig | thereIsHint = False }
+      in
+        ( updateConfig model ( chartIdx, updateChartConfig ), Cmd.none )
+    LeaveContainer chartIdx point ->
+      let
+        updateChartConfig chartConfig = { chartConfig | last = Nothing }
+      in
+        ( updateConfig model ( chartIdx, updateChartConfig ), Cmd.none )
+
+-- VIEW
 
 view : Model -> Html Msg
 view model =
   let
-    currentDatasets = unique ( List.map .datasetName model.config )
-    toDict datasetName =
-      let
-         mLength = Dict.get datasetName model.timeseriesInfo
-         length =  Maybe.withDefault 0 mLength 
-      in
-      { name = datasetName, length = length } 
-    timeseriesInfo = List.map toDict currentDatasets
+    isTimeseries name = name /= ""
+    currentTimeseriesNames = unique ( List.map .timeseriesName model.config )
+    timeseriesNames = List.filter isTimeseries currentTimeseriesNames
   in
-  Html.div []
-    [ div [ class "header" ]
-          [ h1 [] [ text "Timeseries Visualization" ] ]
-    , div [ class "about" ]
-          [ div [ id "description" ] [ text description ]
-           , configuration model
-           , div [ id "dataset" ]
-                 [ h2 [] [ text "Datasets" ]
-                 , datasetInfo timeseriesInfo
-                 ]
-          ]
-    , charts model
-    ]
+  div []
+      [ div [ class "header" ]
+            [ h1 [] [ text "Timeseries Visualization" ] ]
+      , div [ class "about" ]
+            [ configurationView model
+            , div [ id "dataset" ]
+                  [ h2 [] [ text "Timeseries" ]
+                  , timeseriesInfoView timeseriesNames model.timeseriesInfo
+                  ]
+            ]
+      , charts model
+      ]
 
-configuration: Model -> Html Msg
-configuration model =
+configurationView : Model -> Html Msg
+configurationView model =
   let
     dimOptions idx =
       let
-        currentConfig = Maybe.withDefault ( initChartConfig Nothing Nothing "" [])
-                                          ( List.head ( List.drop (idx-1) model.config ) )
-        data = Maybe.withDefault [] ( Dict.get currentConfig.datasetName model.datasets )
-        sample_data = List.head data
-      in
-      case sample_data of
-        Nothing -> []
-        Just sample -> Dict.keys sample
-    dataOptions = Dict.keys model.timeseriesInfo
-    currentChartConfig idx = chartConfig ( dimOptions idx ) dataOptions idx
+         mCurrentChartConfig = List.head ( List.drop idx model.config )
+         currentChartConfig = Maybe.withDefault emptyChartConfig
+                                                mCurrentChartConfig
+         mTimeseries = Dict.get currentChartConfig.timeseriesName
+                                model.timeseries
+         timeseries = Maybe.withDefault [] mTimeseries
+         sampleData = List.head timeseries
+       in
+         case sampleData of
+           Nothing -> []
+           Just sample -> Dict.keys sample
+    timeseriesOptions = Dict.keys model.timeseriesInfo
+    currentChartConfigView idx = chartConfigView ( dimOptions idx )
+                                                 timeseriesOptions
+                                                 idx
   in
-  div [ id "config" ] [ h2 [] [ text "Configuration" ]
-                      , columnConfig model.columns
-                      , div [ id "chartconfigs" ]
-                            ( List.indexedMap currentChartConfig model.config )
-                      , button [ onClick AddChart ]
-                               [ text "Add chart" ]
-                      ]
+    div [ id "config" ]
+        [ h2 [] [ text "Configuration" ]
+        , columnConfigView model.columns
+        , div [ id "chartconfigs" ]
+              ( List.indexedMap currentChartConfigView model.config )
+        , button [ onClick AddChart ]
+                 [ text "Add chart" ]
+        ]
 
-columnConfig : ColumnCount -> Html Msg
-columnConfig columns =
+columnConfigView : ColumnCount -> Html Msg
+columnConfigView columns =
   let
-    ( one_class, two_class ) =
+    ( oneClass, twoClass ) =
       case columns of
         One -> ( "active", "inactive" )
         Two -> ( "inactive", "active" )
   in
   div [ id "columnconfig" ]
-    [ button [ onClick OneColumn, class one_class ] [ text "One column" ]
-    , button [ onClick TwoColumns, class two_class ] [ text "Two columns" ]
-    ]
+      [ button [ onClick OneColumn, class oneClass ] [ text "One column" ]
+      , button [ onClick TwoColumns, class twoClass ] [ text "Two columns" ]
+      ]
 
-chartConfig : List String -> List String -> Int -> ChartConfig -> Html Msg
-chartConfig dimOptions datasetOptions idx config =
+chartConfigView : List String -> List String -> Int -> ChartConfig -> Html Msg
+chartConfigView dimOptions timeseriesOptions idx config =
   let
-    ( derivate_class, original_class ) =
-      case config.derivated of
-        True -> ( "active", "inactive" )
-        False -> ( "inactive", "active" )
+    ( derivateClass, originalClass ) =
+      if config.derivated then
+        ( "active", "inactive" )
+      else
+        ( "inactive", "active" )
   in
   div [ class "chartconfig"]
-      [ text "x axis:"
-      , div [ class "select", class "short_select"] 
-            [ select [ class "select", on "change" (Json.map ( NewXAxis idx ) targetValue) ]
-                     (List.map (dimOption config.xDim) dimOptions)
+      [ p [] [ text "x axis:" ]
+      , div [ class "short_select"]
+            [ select [ class "select"
+                     , on "change"
+                     ( map ( NewXAxis idx ) targetValue)
+                     ]
+                     ( List.map ( dimOption config.xDim ) dimOptions )
             ]
-      , text "y axis:"
-      , div [ class "select", class "short_select" ]
-            [ select [ class "select", on "change" (Json.map ( NewYAxis idx ) targetValue) ]
-                     (List.map (dimOption config.yDim) dimOptions)
+      , p [] [ text "y axis:" ]
+      , div [ class "short_select" ]
+            [ select [ class "select"
+                     , on "change"
+                     ( map ( NewYAxis idx ) targetValue )
+                     ]
+                     ( List.map ( dimOption config.yDim ) dimOptions )
             ]
-      , text "dataset:"
+      , p [] [ text "dataset:" ]
       , div [ class "select" ]
-            [ select [ class "select", on "change" (Json.map ( NewDatasetName idx ) targetValue) ]
-                     (List.map (dataOption config.datasetName) datasetOptions) ]
-      , button [ onClick ( PlotOriginal idx ), class original_class ] [ text "Original" ]
-      , button [ onClick ( PlotDerivate idx ), class derivate_class ] [ text "Derivate" ]
+            [ select [ class "select"
+                     , on "change"
+                     ( map ( NewTimeseriesName idx ) targetValue )
+                     ]
+                     ( List.map ( timeseriesOption config.timeseriesName )
+                                timeseriesOptions
+                     )
+            ]
+      , button [ onClick ( PlotOriginal idx ), class originalClass ]
+               [ text "Original" ]
+      , button [ onClick ( PlotDerivate idx ), class derivateClass ]
+               [ text "Derivate" ]
       , button [ onClick ( RemoveChart idx ) ]
                [ text "Remove chart" ]
       ]
 
-dataOption : String -> String -> Html Msg
-dataOption datasetName opt =
-  option [ value opt, selected ( datasetName == opt ) ] [ text opt ]
+timeseriesOption : String -> String -> Html Msg
+timeseriesOption timeseriesName opt =
+  option [ value opt, selected ( timeseriesName == opt ) ] [ text opt ]
 
 dimOption : String -> String -> Html Msg
 dimOption selectedDim opt =
   option [ value opt, selected ( opt == selectedDim ) ] [ text opt ]
 
-datasetInfo : List Info -> Html Msg
-datasetInfo info =
+timeseriesInfoView : List String -> Dict String Int -> Html Msg
+timeseriesInfoView timeseriesNames info =
   let
-    toTableRow infoRow =
+    toTableRow timeseriesName =
+      let
+        mLength = Dict.get timeseriesName info
+        length = Maybe.withDefault 0 mLength
+      in
       tr []
-         [ td [] [ text infoRow.name ]
-         , td [] [ text ( String.fromInt infoRow.length )]
+         [ td [] [ text timeseriesName ]
+         , td [] [ text ( String.fromInt length )]
          ]
   in
   table []
-    ( List.concat [ [ thead []
-                          [ th [] [text "Name"]
-                          , th [] [text "Length"]
-                          ]
-                  ]
-                  , List.map toTableRow info
-                  ] )
-
-means : List Float -> List Float
-means x =
-  let
-    firsts = List.take ( ( List.length x) - 1 ) x
-    lasts = Maybe.withDefault [] ( List.tail x )
-    mean start end = ( end + start ) /2
-  in
-  List.map2 mean firsts lasts
-
-differences : List Float -> List Float
-differences x =
-  let
-    firsts = List.take ( ( List.length x) - 1 ) x
-    lasts = Maybe.withDefault [] ( List.tail x )
-    diff start end = end - start
-  in
-  List.map2 diff firsts lasts
-
-derivate : List Point -> List Point
-derivate data =
-  let
-    xx = ( List.map .x data )
-    xDiffs = differences xx
-    yDiffs = differences ( List.map .y data )
-    der x y = y / x
-    derivated = List.map2 der xDiffs yDiffs
-    toPoint x y = Point x y
-  in
-  List.map2 toPoint ( means xx ) derivated
+        ( List.concat [ [ thead []
+                                [ th [] [text "Name"]
+                                , th [] [text "Length"]
+                                ]
+                        ]
+                      , List.map toTableRow timeseriesNames
+                      ]
+        )
 
 charts : Model -> Html Msg
 charts model =
   let
     width = case model.columns of
-              One -> model.width
-              Two -> model.width // 2 -- integer division
-    currentChart = chart model.datasets width ( model.columns == Two )
-    columns =
-      case model.columns of
-        One -> "one_column"
-        Two -> "two_columns"
+      One -> model.width
+      Two -> model.width // 2 -- integer division
+    currentChart = chart model.timeseries width ( model.columns == Two )
   in
-  div [ id "charts", class columns ]
+  div [ id "charts" ]
       ( List.indexedMap currentChart model.config )
 
-chart : Dict String ( List ( Dict String Float ) )
+chart : Dict String Timeseries
      -> Int
      -> Bool
      -> Int
      -> ChartConfig
      -> Svg.Svg Msg
-chart datasets width twoColumns chartIdx config =
+chart timeseries width twoColumns chartIdx chartConfig =
   let
-    dataset = Maybe.withDefault [] ( Dict.get config.datasetName datasets )
-    currentPoints = points dataset config
-    idx = Basics.max 0 config.animationIdx
-    pointsToPlot = case config.animationType of
+    mCurrentTimeseries = Dict.get chartConfig.timeseriesName timeseries
+    currentTimeseries = Maybe.withDefault [] mCurrentTimeseries
+    currentPoints = points currentTimeseries chartConfig
+    idx = Basics.max 0 chartConfig.animationIdx
+    pointsToPlot = case chartConfig.animationType of
                      None -> currentPoints
                      PointByPoint -> List.take idx currentPoints
-                     SlidingWindow -> List.drop idx (List.take (idx + n) currentPoints)
-    color = if config.derivated then
+                     SlidingWindow ->
+                       List.drop idx ( List.take ( idx + n ) currentPoints )
+    color = if chartConfig.derivated then
               Colors.blue
             else
               Colors.strongBlue
     float =
-      if twoColumns then
-        if ( modBy 2 chartIdx ) == 0 then
-          "float_left"
-        else
-          "float_right"
+      if twoColumns && ( modBy 2 chartIdx ) /= 0 then
+        "float_right"
       else
         "float_left"
-    lastIdx = case config.animationType of
+    lastIdx = case chartConfig.animationType of
                 None -> 0
                 PointByPoint -> List.length currentPoints
-                SlidingWindow -> ( List.length currentPoints ) - n 
+                SlidingWindow -> ( List.length currentPoints ) - n
     pauseButtonText =
-      if config.paused then
-       if config.animationIdx < lastIdx then 
-         "Continue"
-       else
-         "Start over"
+      if chartConfig.paused then
+        if chartConfig.animationIdx < lastIdx then
+          "Continue"
+        else
+          "Start over"
       else
         "Pause"
     height = Basics.round ( ( toFloat width ) * 0.5 )
   in
   div [ class "chart", class float ]
-      [ chartConfigDiv chartIdx config.mouseMode pauseButtonText config.animationType
+      [ chartControlView chartIdx
+                         chartConfig.mouseMode
+                         pauseButtonText
+                         chartConfig.animationType
       , LineChart.viewCustom
           { y = Axis.custom
-                  { title = Title.default config.yDim
-                   , variable = Just << .y
-                   , pixels = height
-                   , range = Range.window config.yMin config.yMax
-                   , axisLine = AxisLine.custom <| \dataRange axisRange ->
+                  { title = Title.default chartConfig.yDim
+                  , variable = Just << .y
+                  , pixels = height
+                  , range = Range.window chartConfig.yMin chartConfig.yMax
+                  , axisLine = AxisLine.custom <| \pointRange axisRange ->
                                  { color = Colors.gray
                                  , width = 2
                                  , events = []
-                                 , start = config.yMin
-                                 , end = config.yMax
+                                 , start = chartConfig.yMin
+                                 , end = chartConfig.yMax
                                  }
-                   , ticks = customTicks config.yMin config.yMax 8
-                   }
+                  , ticks = customTicks chartConfig.yMin chartConfig.yMax 8
+                  }
           , x = Axis.custom
-                  { title = Title.default config.xDim
+                  { title = Title.default chartConfig.xDim
                   , variable = Just << .x
                   , pixels = width
-                  , range = Range.window config.xMin config.xMax
-                  , axisLine = AxisLine.custom <| \dataRange axisRange ->
+                  , range = Range.window chartConfig.xMin chartConfig.xMax
+                  , axisLine = AxisLine.custom <| \pointRange axisRange ->
                                  { color = Colors.gray
                                  , width = 2
                                  , events = []
-                                 , start = config.xMin
-                                 , end = config.xMax
+                                 , start = chartConfig.xMin
+                                 , end = chartConfig.xMax
                                  }
-                  , ticks = customTicks config.xMin config.xMax 8
+                  , ticks = customTicks chartConfig.xMin chartConfig.xMax 8
                   }
           , container = Container.default "line-chart"
           , interpolation = Interpolation.default
           , intersection = Intersection.default
           , legends = Legends.default
           , events = events chartIdx
-          , junk = 
+          , junk =
               Junk.custom <| \system ->
-                { below = [ zoomRect config system ]
-                , above = sectionBand ( width, height ) currentPoints config system
+                { below = [ zoomRect chartConfig system ]
+                , above = hintView ( width, height )
+                                   currentPoints
+                                   chartConfig
+                                   system
                 , html = []
                 }
           , grid = Grid.default
@@ -858,56 +842,45 @@ chart datasets width twoColumns chartIdx config =
           , line = Line.default
           , dots = Dots.default
           }
-          [LineChart.line color Dots.circle config.datasetName pointsToPlot] ]
+          [ LineChart.line color
+                           Dots.circle
+                           chartConfig.timeseriesName
+                           pointsToPlot
+          ]
+  ]
 
 customTicks : Float -> Float -> Int -> Ticks.Config msg
 customTicks start end count =
   let
-    list = listFromRange start end count
-    list1 = List.head list
-    list2 = List.head ( Maybe.withDefault [] ( List.tail list ) )
-    step = ( Maybe.withDefault 1 list2 ) - ( Maybe.withDefault 0 list1 )
-    decimals = Basics.floor ( -1 * ( logBase 10 step ) + 1 ) 
-    customTick number = Tick.custom
-      { position = number
-      , color = Colors.black
-      , width = 1
-      , length = 7
-      , grid = True
-      , direction = Tick.negative
-      , label = List.head [ Junk.label Colors.black (Round.round decimals number) ]
-      }
+    list = listFromRange start end count -- in CALCULATIONS block
+    listHead = List.head list
+    listEnd = List.head ( Maybe.withDefault [] ( List.tail list ) )
+    step = ( Maybe.withDefault 1 listEnd ) - ( Maybe.withDefault 0 listHead )
+    decimals = Basics.floor ( -1 * ( logBase 10 step ) + 1 )
+    customTick number =
+      Tick.custom
+        { position = number
+        , color = Colors.black
+        , width = 1
+        , length = 7
+        , grid = True
+        , direction = Tick.negative
+        , label = List.head [ Junk.label Colors.black
+                                        ( Round.round decimals number )
+                            ]
+        }
   in
-  Ticks.custom <| \dataRange range ->
-    List.map customTick list
+  Ticks.custom <| \dataRange range -> List.map customTick list
 
-listFromRange : Float -> Float -> Int -> List Float
-listFromRange start end count =
-  let
-    decimals = toFloat ( Basics.floor ( ( logBase 10 ( end - start) ) - 1 ) )
-    step = ( ( end - start ) / ( (toFloat count ) - 1 ) )
-    roundedStep = (toFloat (Basics.round ( step / 10^decimals) )) * 10^decimals
-    roundedStart = (toFloat (Basics.round ( start / 10^decimals) )) * 10^decimals
-    range = List.range 0 ( 2 * count )
-    member idx = 
-      let
-         x = roundedStart + ( ( toFloat idx ) * roundedStep )
-      in
-      (toFloat (Basics.round ( x / 10^decimals) )) * 10^decimals
-    list = List.map member range
-    inInterval x = start <= x && x <= end
-  in
-  List.filter inInterval list
-
-chartConfigDiv : Int -> MouseMode -> String -> AnimationType -> Html Msg
-chartConfigDiv chartIdx mouseMode pauseText animationType=
+chartControlView : Int -> MouseMode -> String -> AnimationType -> Html Msg
+chartControlView chartIdx mouseMode pauseText animationType =
   let
     ( dragClass, zoomClass ) =
       case mouseMode of
-        Drag -> ("active", "inactive")
-        Zoom -> ("inactive", "active")
+        Drag -> ( "active", "inactive" )
+        Zoom -> ( "inactive", "active" )
   in
-  div [class "control"]
+  div [ class "control" ]
       [ div []
             [ button [ onClick ( ZoomIn chartIdx ) ]
                      [ text "Zoom in" ]
@@ -917,9 +890,9 @@ chartConfigDiv chartIdx mouseMode pauseText animationType=
                      [ text "Reset Axis" ]
             , button [ onClick ( DragMode chartIdx ), class dragClass ]
                      [ text "Drag" ]
-            , button [ onClick ( ZoomMode chartIdx ), class zoomClass ]
+           ,  button [ onClick ( ZoomMode chartIdx ), class zoomClass ]
                      [ text "Zoom" ]
-            ]
+           ]
       , animationButtons animationType pauseText chartIdx
       ]
 
@@ -927,27 +900,31 @@ animationButtons : AnimationType -> String -> Int -> Html Msg
 animationButtons animationType pauseText chartIdx =
   let
     ( pointByPointClass, slidingWindowClass ) =
-        case animationType of
-          None -> ("inactive", "inactive")
-          PointByPoint -> ("active", "inactive")
-          SlidingWindow -> ("inactive", "active")
+      case animationType of
+        None -> ("inactive", "inactive")
+        PointByPoint -> ("active", "inactive")
+        SlidingWindow -> ("inactive", "active")
   in
   if animationType == None then
     div []
         [ button [ onClick ( StartPointByPoint chartIdx )
-                 , class pointByPointClass ]
+                 , class pointByPointClass
+                 ]
                  [ text "Animation: point by point"]
         , button [ onClick ( StartSlidingWindow chartIdx )
-                 , class slidingWindowClass ]
+                 , class slidingWindowClass
+                 ]
                  [ text "Animation: sliding window"]
         ]
   else
     div []
         [ button [ onClick ( StartPointByPoint chartIdx )
-                 , class pointByPointClass ]
+                 , class pointByPointClass
+                 ]
                  [ text "Animation: point by point"]
         , button [ onClick ( StartSlidingWindow chartIdx )
-                 , class slidingWindowClass ]
+                 , class slidingWindowClass
+                 ]
                  [ text "Animation: sliding window"]
         , button [ onClick ( PauseContinue chartIdx ) ]
                  [ text pauseText ]
@@ -957,50 +934,61 @@ animationButtons animationType pauseText chartIdx =
 
 events : Int -> Events.Config Point Msg
 events idx =
-    let
-      options bool =
-        { stopPropagation = True
-        , preventDefault = True
-        , catchOutsideChart = bool
-        }
-    in
-    Events.custom
-      [ Events.onWithOptions "mousedown"  (options True)  (Hold idx)           Events.getData
-      , Events.onWithOptions "mousemove"  (options False) (Move idx)           Events.getData
-      , Events.onWithOptions "mouseup"    (options True)  (Drop idx)           Events.getData
-      , Events.onWithOptions "mouseleave" (options False) (LeaveChart idx)     Events.getData
-      , Events.onWithOptions "mouseleave" (options True)  (LeaveContainer idx) Events.getData
-      ]
+  let
+    options bool =
+      { stopPropagation = True
+      , preventDefault = True
+      , catchOutsideChart = bool
+      }
+    event = Events.onWithOptions
+  in
+  Events.custom
+    [ event "mousedown"  (options True)  (Hold idx)           Events.getData
+    , event "mousemove"  (options False) (Move idx)           Events.getData
+    , event "mouseup"    (options True)  (Drop idx)           Events.getData
+    , event "mouseleave" (options False) (LeaveChart idx)     Events.getData
+    , event "mouseleave" (options True)  (LeaveContainer idx) Events.getData
+    ]
 
-sectionBand : ( Int, Int ) -> List Point -> ChartConfig -> Coordinate.System -> List ( Svg.Svg msg )
-sectionBand ( height, width ) currentPoints config system =
+hintView : ( Int, Int )
+        -> List Point
+        -> ChartConfig
+        -> Coordinate.System
+        -> List ( Svg.Svg msg )
+hintView ( height, width ) currentPoints config system =
   if config.thereIsHint then
     let
-      dist idx data_point = { idx = idx, dist = (data_point.x - config.current.x)^2 + (data_point.y - config.current.y)^2, point = data_point }
-      dists = List.sortBy .dist ( List.indexedMap dist currentPoints )
+      distsq idx point =
+        let
+         xDist = point.x - config.current.x
+         yDist = point.y - config.current.y
+        in
+        { idx = idx, distsq = xDist^2 + yDist^2, point = point }
+      distsqs = List.sortBy .distsq ( List.indexedMap distsq currentPoints )
       ( hinted, hintColor ) =
-        case List.head dists of
-            Just min ->
-              case min.dist < ((config.xMax - config.xMin)*0.03)^2  of
-                True -> ( min.point, Colors.strongBlue )
-                False -> ( config.current, Colors.black )
-            Nothing -> ( config.current, Colors.black )
-      (hint_x, hint_y) = hintOfPoint config hinted
-      label_x = system.x.max + (system.x.max - system.x.min)*0.05
-      labelHeight = ( system.y.max - system.y.min ) / ( toFloat height ) * 50 
-      label_y = Basics.min hinted.y (system.y.max - 2 * labelHeight )
-      label_y_down = label_y - labelHeight
+        case List.head distsqs of
+          Just min ->
+            if min.distsq < ( ( config.xMax - config.xMin ) * 0.03 )^2 then
+              ( min.point, Colors.strongBlue )
+            else
+              ( config.current, Colors.black )
+          Nothing -> ( config.current, Colors.black )
+      (xHint, yHint) = hintOfPoint config hinted
+      xLabel = system.x.max + ( system.x.max - system.x.min ) * 0.05
+      labelHeight = ( system.y.max - system.y.min ) / ( toFloat height ) * 50
+      yLabel = Basics.min hinted.y (system.y.max - 2 * labelHeight )
+      yLabelDown = yLabel - labelHeight
     in
     [ Junk.labelAt system
-        label_x label_y
-        system.x.min system.y.min
-        "right"
-        hintColor hint_x
+                   xLabel yLabel
+                   system.x.min system.y.min
+                   "right"
+                   hintColor xHint
     , Junk.labelAt system
-        label_x label_y_down
-        system.x.min system.y.min
-        "right"
-        hintColor hint_y
+                   xLabel yLabelDown
+                   system.x.min system.y.min
+                   "right"
+                   hintColor yHint
     ]
   else
     []
@@ -1010,64 +998,115 @@ zoomRect config system =
   case config.mouseMode of
     Drag -> text ""
     Zoom -> case config.last of
-              Nothing -> text ""
-              Just last ->
-                Junk.rectangle system [ SVGA.fill "#b6b6b61a" ]
-                               last.x config.current.x
-                               last.y config.current.y
-
+      Nothing -> text ""
+      Just last ->
+        Junk.rectangle system [ fill "#b6b6b61a" ]
+                       last.x config.current.x
+                       last.y config.current.y
 
 hintOfPoint : ChartConfig -> Coordinate.Point -> ( String, String )
 hintOfPoint config point =
   let
-    rounded_x = Round.round 2 point.x
-    rounded_y = Round.round 2 point.y
+     xRounded = Round.round 2 point.x
+     yRounded = Round.round 2 point.y
   in
-  ( config.xDim ++ ": " ++ rounded_x
-  ,  config.yDim ++": " ++ rounded_y )
+  ( config.xDim ++ ": " ++ xRounded,  config.yDim ++": " ++ yRounded )
 
-points : List ( Dict String Float ) -> ChartConfig -> List Point
-points dataset config =
+-- CONVERT TIMESERIES TO LIST OF POINTS
+
+points : Timeseries -> ChartConfig -> List Point
+points timeseries config =
   let
     currentDataToPoint = dataToPoint config.xDim config.yDim
-    originalPoints = List.map currentDataToPoint dataset
+    originalPoints = List.map currentDataToPoint timeseries
   in
   if config.derivated then
     derivate originalPoints
   else
-    originalPoints 
+    originalPoints
 
 dataToPoint : String -> String -> Data -> Point
 dataToPoint xDim yDim dict =
   let
     x = Dict.get xDim dict
-    just_x = Maybe.withDefault 0 x
+    justX = Maybe.withDefault 0 x
     y = Dict.get yDim dict
-    just_y = Maybe.withDefault 0 y
+    justY = Maybe.withDefault 0 y
   in
-  Point just_x just_y
+  Point justX justY
 
-description: String
-description= "Use the configuration box to add/remove charts and to select the dimensions of the datasets. Select here whether the data should be derivated. Use the One Column/Two Columns buttons to change the layout. Use the buttons for each chart to zoom and drag in that chart. Use the buttons for each chart to animate point by point or with a sliding window."
+-- COMMUNICATION
 
 downloadInfo : Cmd Msg
 downloadInfo =
   Http.get
-  { url = "/info" -- TODO
-  , expect =
-    Http.expectJson GotInfo ( Json.dict Json.int )
-  }
+    { url = "/info"
+    , expect = expectJson GotInfo ( dict int )
+    }
 
-downloadDataset : String -> Cmd Msg
-downloadDataset name =
+downloadTimeseries : String -> Cmd Msg
+downloadTimeseries name =
   Http.get
-  { url = "/download/" ++ name
-  , expect =
-    Http.expectString ( GotDataset name )
-  }
+    { url = "/download/" ++ name
+    , expect = expectString ( GotTimeseries name )
+    }
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
   Sub.batch [ Time.every 1000 Tick
             , onResize ( \w h -> Resized w )
+            , loadcookie CookieLoaded
             ]
+
+-- CALCULATIONS
+
+means : List Float -> List Float
+means x =
+  let
+    firsts = List.take ( ( List.length x) - 1 ) x
+    lasts = Maybe.withDefault [] ( List.tail x )
+    mean start end = ( end + start ) / 2
+  in
+  List.map2 mean firsts lasts
+
+differences : List Float -> List Float
+differences x =
+  let
+     firsts = List.take ( ( List.length x) - 1 ) x
+     lasts = Maybe.withDefault [] ( List.tail x )
+     diff start end = end - start
+  in
+  List.map2 diff firsts lasts
+
+derivate : List Point -> List Point
+derivate data =
+  let
+    xx = List.map .x data
+    yy = List.map .y data
+    xDiffs = differences xx
+    yDiffs = differences yy
+    der x y = y / x
+    derivated = List.map2 der xDiffs yDiffs
+    toPoint x y = Point x y
+  in
+  List.map2 toPoint ( means xx ) derivated
+
+listFromRange : Float -> Float -> Int -> List Float
+listFromRange start end count =
+  let
+    decimals = toFloat ( Basics.floor ( ( logBase 10 ( end - start) ) - 1 ) )
+    scale = 10^decimals
+    step = ( ( end - start ) / ( (toFloat count ) - 1 ) )
+    roundedStep = ( toFloat ( Basics.round ( step / scale ) ) ) * scale
+    roundedStart = ( toFloat ( Basics.round ( start / scale ) ) ) * scale
+    range = List.range 0 ( 2 * count )
+    member idx =
+      let
+        x = roundedStart + ( ( toFloat idx ) * roundedStep )
+      in
+      x
+      --( toFloat ( Basics.round ( x / scale ) ) ) * scale
+    list = List.map member range
+    inInterval x = start <= x && x <= end
+  in
+  List.filter inInterval list

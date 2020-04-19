@@ -4,20 +4,18 @@ div.header {
 
   border-style: none none solid none;
   border-width: 5px;
-  border-color: rgb(89, 51, 204);}
+  border-color: rgb(89, 51, 204);
+}
 
 h2 {
-  text-align: center;}
+  text-align: center;
+}
 
 div.header h1 {
-  margin: 10px 10px 10px 10px;}
+  margin: 10px 10px 10px 10px;
+}
 
 .about { display: flex; }
-
-#description {
-  flex: 1; /* flex: proportion in children */
-  min-width: 80px;
-  margin: 10px}
 
 #config {
   padding: 10px;
@@ -25,27 +23,32 @@ div.header h1 {
   border-style: solid;
   border-width: 3px;
   border-color: rgb(89, 51, 204);
-  flex: 3;}
+  flex: 3;
+}
 
 #dataset {
   min-width: 80px;
-  flex: 1; }
+  flex: 1;
+}
   
-.chartconfig {
-  margin: 10px;
-  display: flex;}
-
 .config {
   margin: 10px;
-  display: flex;}
+  display: flex;
+}
+
+.chartconfig {
+  margin: 10px;
+  display: flex;
+}
 
 div.select {
-  width: 100px;
+  width: 120px;
   margin-left: 10px;
-  /*margin-left: calc(66.66% + (33.33% - 80px) / 2 );*/}
+}
 
 div.short_select {
-  width: 50px; }
+  width: 80px;
+}
 
 .float_left { float: left; }
 .float_right { float: right; }
@@ -57,15 +60,44 @@ button {
   text-align: center;
   text-decoration: none;
   display: inline-block;
-  border-radius: 8px; }
+  border-radius: 8px;
+}
 
 button.active {
-  border: 2px solid rgb(89, 51, 204); }
+  border: 2px solid rgb(89, 51, 204);
+}
 
 table {
   border-collapse: collapse;
+  margin: 5px;
 }
 
 th, td {
   border: 1px solid black;
-  padding: 5px; }
+  padding: 5px;
+}
+
+div { margin: 5px; }
+
+.table {
+  display: flex;
+  justify-content: center;
+}
+
+.select select, .short_select select {
+  margin: 5px;
+  padding: 5px;
+  border: 1px solid black;
+  text-align: left;
+  text-decoration: none;
+  width: 90%;
+  border-radius: 8px;
+  -moz-appearance:none; /* Firefox */
+  -webkit-appearance:none; /* Safari and Chrome */
+  background: transparent url("http://cdn1.iconfinder.com/data/icons/cc_mono_icon_set/blacks/16x16/br_down.png") no-repeat 40px;
+  background-position: 90% 50%;
+}
+
+p {
+  text-align: center;
+}
