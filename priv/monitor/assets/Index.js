@@ -5319,7 +5319,7 @@ var $elm$core$Task$perform = F2(
 				A2($elm$core$Task$map, toMessage, task)));
 	});
 var $elm$browser$Browser$element = _Browser_element;
-var $author$project$Main$GotInfo = function (a) {
+var $author$project$Index$GotInfo = function (a) {
 	return {$: 'GotInfo', a: a};
 };
 var $elm$core$Dict$RBEmpty_elm_builtin = {$: 'RBEmpty_elm_builtin'};
@@ -6129,40 +6129,58 @@ var $elm$http$Http$get = function (r) {
 		{body: $elm$http$Http$emptyBody, expect: r.expect, headers: _List_Nil, method: 'GET', timeout: $elm$core$Maybe$Nothing, tracker: $elm$core$Maybe$Nothing, url: r.url});
 };
 var $elm$json$Json$Decode$int = _Json_decodeInt;
-var $author$project$Main$downloadInfo = $elm$http$Http$get(
+var $author$project$Index$downloadInfo = $elm$http$Http$get(
 	{
 		expect: A2(
 			$elm$http$Http$expectJson,
-			$author$project$Main$GotInfo,
+			$author$project$Index$GotInfo,
 			$elm$json$Json$Decode$dict($elm$json$Json$Decode$int)),
 		url: '/info'
 	});
-var $author$project$Main$init = function (_v0) {
+var $author$project$Index$init = function (_v0) {
 	return _Utils_Tuple2(
-		{timeseries: $elm$core$Dict$empty},
-		$author$project$Main$downloadInfo);
+		{timeseriesInfo: $elm$core$Dict$empty},
+		$author$project$Index$downloadInfo);
 };
 var $elm$core$Platform$Sub$batch = _Platform_batch;
 var $elm$core$Platform$Sub$none = $elm$core$Platform$Sub$batch(_List_Nil);
-var $author$project$Main$subscriptions = function (model) {
+var $author$project$Index$subscriptions = function (model) {
 	return $elm$core$Platform$Sub$none;
 };
 var $elm$core$Platform$Cmd$batch = _Platform_batch;
+var $elm$browser$Browser$Navigation$load = _Browser_load;
 var $elm$core$Platform$Cmd$none = $elm$core$Platform$Cmd$batch(_List_Nil);
-var $author$project$Main$update = F2(
-	function (message, model) {
-		if (message.a.$ === 'Ok') {
-			var info = message.a.a;
-			return _Utils_Tuple2(
-				_Utils_update(
-					model,
-					{timeseries: info}),
-				$elm$core$Platform$Cmd$none);
+var $elm$json$Json$Encode$string = _Json_wrap;
+var $author$project$Index$save = _Platform_outgoingPort('save', $elm$json$Json$Encode$string);
+var $author$project$Index$update = F2(
+	function (msg, model) {
+		if (msg.$ === 'GotInfo') {
+			if (msg.a.$ === 'Ok') {
+				var info = msg.a.a;
+				return _Utils_Tuple2(
+					_Utils_update(
+						model,
+						{timeseriesInfo: info}),
+					$elm$core$Platform$Cmd$none);
+			} else {
+				return _Utils_Tuple2(model, $elm$core$Platform$Cmd$none);
+			}
 		} else {
-			return _Utils_Tuple2(model, $elm$core$Platform$Cmd$none);
+			var chosenName = msg.a;
+			return _Utils_Tuple2(
+				model,
+				$elm$core$Platform$Cmd$batch(
+					_List_fromArray(
+						[
+							$author$project$Index$save(chosenName),
+							$elm$browser$Browser$Navigation$load('TimeseriesClient.html')
+						])));
 		}
 	});
-var $elm$json$Json$Encode$string = _Json_wrap;
+var $author$project$Index$TimeseriesChosen = function (a) {
+	return {$: 'TimeseriesChosen', a: a};
+};
+var $elm$html$Html$button = _VirtualDom_node('button');
 var $elm$html$Html$Attributes$stringProperty = F2(
 	function (key, string) {
 		return A2(
@@ -6171,52 +6189,164 @@ var $elm$html$Html$Attributes$stringProperty = F2(
 			$elm$json$Json$Encode$string(string));
 	});
 var $elm$html$Html$Attributes$class = $elm$html$Html$Attributes$stringProperty('className');
+var $elm$core$List$append = F2(
+	function (xs, ys) {
+		if (!ys.b) {
+			return xs;
+		} else {
+			return A3($elm$core$List$foldr, $elm$core$List$cons, ys, xs);
+		}
+	});
+var $elm$core$List$concat = function (lists) {
+	return A3($elm$core$List$foldr, $elm$core$List$append, _List_Nil, lists);
+};
 var $elm$html$Html$div = _VirtualDom_node('div');
+var $elm$html$Html$h1 = _VirtualDom_node('h1');
+var $elm$virtual_dom$VirtualDom$Normal = function (a) {
+	return {$: 'Normal', a: a};
+};
+var $elm$virtual_dom$VirtualDom$on = _VirtualDom_on;
+var $elm$html$Html$Events$on = F2(
+	function (event, decoder) {
+		return A2(
+			$elm$virtual_dom$VirtualDom$on,
+			event,
+			$elm$virtual_dom$VirtualDom$Normal(decoder));
+	});
+var $elm$html$Html$Events$onClick = function (msg) {
+	return A2(
+		$elm$html$Html$Events$on,
+		'click',
+		$elm$json$Json$Decode$succeed(msg));
+};
+var $elm$html$Html$table = _VirtualDom_node('table');
+var $elm$html$Html$td = _VirtualDom_node('td');
 var $elm$virtual_dom$VirtualDom$text = _VirtualDom_text;
 var $elm$html$Html$text = $elm$virtual_dom$VirtualDom$text;
-var $author$project$Main$viewRowCell = function (string) {
-	return A2(
-		$elm$html$Html$div,
-		_List_fromArray(
-			[
-				$elm$html$Html$Attributes$class('row-cell')
-			]),
-		_List_fromArray(
-			[
-				$elm$html$Html$text(string)
-			]));
-};
-var $author$project$Main$viewTimeseries = function (_v0) {
-	var name = _v0.a;
-	var length = _v0.b;
-	return A2(
-		$elm$html$Html$div,
-		_List_fromArray(
-			[
-				$elm$html$Html$Attributes$class('item')
-			]),
-		A2(
-			$elm$core$List$map,
-			$author$project$Main$viewRowCell,
+var $elm$html$Html$th = _VirtualDom_node('th');
+var $elm$html$Html$thead = _VirtualDom_node('thead');
+var $elm$html$Html$tr = _VirtualDom_node('tr');
+var $elm$core$Maybe$withDefault = F2(
+	function (_default, maybe) {
+		if (maybe.$ === 'Just') {
+			var value = maybe.a;
+			return value;
+		} else {
+			return _default;
+		}
+	});
+var $author$project$Index$view = function (model) {
+	var toTableRow = function (infoRow) {
+		return A2(
+			$elm$html$Html$tr,
+			_List_Nil,
 			_List_fromArray(
 				[
-					name,
-					$elm$core$String$fromInt(length)
-				])));
-};
-var $author$project$Main$view = function (model) {
-	return A2(
-		$elm$html$Html$div,
+					A2(
+					$elm$html$Html$td,
+					_List_Nil,
+					_List_fromArray(
+						[
+							A2(
+							$elm$html$Html$button,
+							_List_fromArray(
+								[
+									$elm$html$Html$Events$onClick(
+									$author$project$Index$TimeseriesChosen(infoRow.name))
+								]),
+							_List_fromArray(
+								[
+									$elm$html$Html$text(infoRow.name)
+								]))
+						])),
+					A2(
+					$elm$html$Html$td,
+					_List_Nil,
+					_List_fromArray(
+						[
+							$elm$html$Html$text(
+							$elm$core$String$fromInt(infoRow.length))
+						]))
+				]));
+	};
+	var toInfoDict = function (timeseriesName) {
+		var mLength = A2($elm$core$Dict$get, timeseriesName, model.timeseriesInfo);
+		var length = A2($elm$core$Maybe$withDefault, 0, mLength);
+		return {length: length, name: timeseriesName};
+	};
+	var timeseriesInfoDict = A2(
+		$elm$core$List$map,
+		toInfoDict,
+		$elm$core$Dict$keys(model.timeseriesInfo));
+	var tableContent = $elm$core$List$concat(
 		_List_fromArray(
 			[
-				$elm$html$Html$Attributes$class('items')
-			]),
-		A2(
-			$elm$core$List$map,
-			$author$project$Main$viewTimeseries,
-			$elm$core$Dict$toList(model.timeseries)));
+				_List_fromArray(
+				[
+					A2(
+					$elm$html$Html$thead,
+					_List_Nil,
+					_List_fromArray(
+						[
+							A2(
+							$elm$html$Html$th,
+							_List_Nil,
+							_List_fromArray(
+								[
+									$elm$html$Html$text('Name')
+								])),
+							A2(
+							$elm$html$Html$th,
+							_List_Nil,
+							_List_fromArray(
+								[
+									$elm$html$Html$text('Length')
+								]))
+						]))
+				]),
+				A2($elm$core$List$map, toTableRow, timeseriesInfoDict)
+			]));
+	return A2(
+		$elm$html$Html$div,
+		_List_Nil,
+		_List_fromArray(
+			[
+				A2(
+				$elm$html$Html$div,
+				_List_fromArray(
+					[
+						$elm$html$Html$Attributes$class('header')
+					]),
+				_List_fromArray(
+					[
+						A2(
+						$elm$html$Html$h1,
+						_List_Nil,
+						_List_fromArray(
+							[
+								$elm$html$Html$text('Timeseries Visualization')
+							]))
+					])),
+				A2(
+				$elm$html$Html$div,
+				_List_Nil,
+				_List_fromArray(
+					[
+						$elm$html$Html$text('Choose a timeseries!')
+					])),
+				A2(
+				$elm$html$Html$div,
+				_List_fromArray(
+					[
+						$elm$html$Html$Attributes$class('table')
+					]),
+				_List_fromArray(
+					[
+						A2($elm$html$Html$table, _List_Nil, tableContent)
+					]))
+			]));
 };
-var $author$project$Main$main = $elm$browser$Browser$element(
-	{init: $author$project$Main$init, subscriptions: $author$project$Main$subscriptions, update: $author$project$Main$update, view: $author$project$Main$view});
-_Platform_export({'Main':{'init':$author$project$Main$main(
+var $author$project$Index$main = $elm$browser$Browser$element(
+	{init: $author$project$Index$init, subscriptions: $author$project$Index$subscriptions, update: $author$project$Index$update, view: $author$project$Index$view});
+_Platform_export({'Index':{'init':$author$project$Index$main(
 	$elm$json$Json$Decode$succeed(_Utils_Tuple0))(0)}});}(this));
