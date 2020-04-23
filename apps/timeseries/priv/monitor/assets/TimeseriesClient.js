@@ -8063,7 +8063,7 @@ var $author$project$TimeseriesClient$chartControlView = F4(
 								]),
 							_List_fromArray(
 								[
-									$elm$html$Html$text('Reset Axis')
+									$elm$html$Html$text('Reset axis')
 								])),
 							A2(
 							$elm$html$Html$button,
@@ -12222,7 +12222,7 @@ var $author$project$TimeseriesClient$chartConfigView = F4(
 					_List_Nil,
 					_List_fromArray(
 						[
-							$elm$html$Html$text('dataset:')
+							$elm$html$Html$text('timeseries:')
 						])),
 					A2(
 					$elm$html$Html$div,
@@ -12553,7 +12553,7 @@ var $author$project$TimeseriesClient$view = function (model) {
 						$elm$html$Html$div,
 						_List_fromArray(
 							[
-								$elm$html$Html$Attributes$id('dataset')
+								$elm$html$Html$Attributes$id('timeseries')
 							]),
 						_List_fromArray(
 							[

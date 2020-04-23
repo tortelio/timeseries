@@ -165,7 +165,7 @@ initChartConfig mXDim mYDim name timeseries =
     yDim = Maybe.withDefault "" mYDim
     initXDim =
       if mXDim == Nothing || not ( List.member xDim dims ) then
-        -- default t needed in case of empty dataset
+        -- default t needed in case of empty timeseries
         Maybe.withDefault "t" ( List.head dims )
       else
         xDim
@@ -612,7 +612,7 @@ view model =
             [ h1 [] [ text "Timeseries Visualization" ] ]
       , div [ class "about" ]
             [ configurationView model
-            , div [ id "dataset" ]
+            , div [ id "timeseries" ]
                   [ h2 [] [ text "Timeseries" ]
                   , timeseriesInfoView timeseriesNames model.timeseriesInfo
                   ]
@@ -689,7 +689,7 @@ chartConfigView dimOptions timeseriesOptions idx config =
                      ]
                      ( List.map ( dimOption config.yDim ) dimOptions )
             ]
-      , p [] [ text "dataset:" ]
+      , p [] [ text "timeseries:" ]
       , div [ class "select" ]
             [ select [ class "select"
                      , on "change"
@@ -887,7 +887,7 @@ chartControlView chartIdx mouseMode pauseText animationType =
             , button [ onClick ( ZoomOut chartIdx ) ]
                      [ text "Zoom out" ]
             , button [ onClick ( ResetAxis chartIdx ) ]
-                     [ text "Reset Axis" ]
+                     [ text "Reset axis" ]
             , button [ onClick ( DragMode chartIdx ), class dragClass ]
                      [ text "Drag" ]
            ,  button [ onClick ( ZoomMode chartIdx ), class zoomClass ]
