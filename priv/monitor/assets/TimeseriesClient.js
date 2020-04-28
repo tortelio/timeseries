@@ -5407,12 +5407,6 @@ var $author$project$TimeseriesClient$GetViewport = function (a) {
 };
 var $author$project$TimeseriesClient$One = {$: 'One'};
 var $elm$core$Platform$Cmd$batch = _Platform_batch;
-var $elm$json$Json$Encode$null = _Json_encodeNull;
-var $author$project$TimeseriesClient$doloadcookie = _Platform_outgoingPort(
-	'doloadcookie',
-	function ($) {
-		return $elm$json$Json$Encode$null;
-	});
 var $author$project$TimeseriesClient$GotInfo = function (a) {
 	return {$: 'GotInfo', a: a};
 };
@@ -6400,6 +6394,12 @@ var $author$project$TimeseriesClient$initChartConfig = F4(
 				$elm$core$List$minimum(yDimValues))
 		};
 	});
+var $elm$json$Json$Encode$null = _Json_encodeNull;
+var $author$project$TimeseriesClient$loadcookie = _Platform_outgoingPort(
+	'loadcookie',
+	function ($) {
+		return $elm$json$Json$Encode$null;
+	});
 var $author$project$TimeseriesClient$init = function (_v0) {
 	return _Utils_Tuple2(
 		{
@@ -6415,7 +6415,7 @@ var $author$project$TimeseriesClient$init = function (_v0) {
 		$elm$core$Platform$Cmd$batch(
 			_List_fromArray(
 				[
-					$author$project$TimeseriesClient$doloadcookie(_Utils_Tuple0),
+					$author$project$TimeseriesClient$loadcookie(_Utils_Tuple0),
 					$author$project$TimeseriesClient$downloadInfo,
 					A2($elm$core$Task$perform, $author$project$TimeseriesClient$GetViewport, $elm$browser$Browser$Dom$getViewport)
 				])));
@@ -6430,6 +6430,8 @@ var $author$project$TimeseriesClient$Tick = function (a) {
 	return {$: 'Tick', a: a};
 };
 var $elm$core$Platform$Sub$batch = _Platform_batch;
+var $elm$json$Json$Decode$string = _Json_decodeString;
+var $author$project$TimeseriesClient$cookieloaded = _Platform_incomingPort('cookieloaded', $elm$json$Json$Decode$string);
 var $elm$time$Time$Every = F2(
 	function (a, b) {
 		return {$: 'Every', a: a, b: b};
@@ -6700,8 +6702,6 @@ var $elm$time$Time$every = F2(
 		return $elm$time$Time$subscription(
 			A2($elm$time$Time$Every, interval, tagger));
 	});
-var $elm$json$Json$Decode$string = _Json_decodeString;
-var $author$project$TimeseriesClient$loadcookie = _Platform_incomingPort('loadcookie', $elm$json$Json$Decode$string);
 var $elm$browser$Browser$Events$Window = {$: 'Window'};
 var $elm$json$Json$Decode$field = _Json_decodeField;
 var $elm$browser$Browser$Events$MySub = F3(
@@ -6898,7 +6898,7 @@ var $author$project$TimeseriesClient$subscriptions = function (model) {
 					function (w, h) {
 						return $author$project$TimeseriesClient$Resized(w);
 					})),
-				$author$project$TimeseriesClient$loadcookie($author$project$TimeseriesClient$CookieLoaded)
+				$author$project$TimeseriesClient$cookieloaded($author$project$TimeseriesClient$CookieLoaded)
 			]));
 };
 var $author$project$TimeseriesClient$Drag = {$: 'Drag'};
@@ -7425,21 +7425,10 @@ var $author$project$TimeseriesClient$update = F2(
 				case 'AddChart':
 					var lastConfig = $elm$core$List$head(
 						$elm$core$List$reverse(model.config));
-					var newTimeseriesName = function () {
-						if (lastConfig.$ === 'Nothing') {
-							var timeseriesNames = $elm$core$Dict$keys(model.timeseriesInfo);
-							var firstTimeseriesName = $elm$core$List$head(timeseriesNames);
-							return A2($elm$core$Maybe$withDefault, '', firstTimeseriesName);
-						} else {
-							var config = lastConfig.a;
-							return config.timeseriesName;
-						}
-					}();
-					var mNewTimeseries = A2($elm$core$Dict$get, newTimeseriesName, model.timeseries);
-					var newTimeseries = A2($elm$core$Maybe$withDefault, _List_Nil, mNewTimeseries);
-					var newChartConfig = A4($author$project$TimeseriesClient$initChartConfig, $elm$core$Maybe$Nothing, $elm$core$Maybe$Nothing, newTimeseriesName, newTimeseries);
-					return _Utils_Tuple2(
-						_Utils_update(
+					if (lastConfig.$ === 'Nothing') {
+						var timeseriesNames = $elm$core$Dict$keys(model.timeseriesInfo);
+						var newChartConfig = A4($author$project$TimeseriesClient$initChartConfig, $elm$core$Maybe$Nothing, $elm$core$Maybe$Nothing, '', _List_Nil);
+						var newModel = _Utils_update(
 							model,
 							{
 								config: A2(
@@ -7447,8 +7436,29 @@ var $author$project$TimeseriesClient$update = F2(
 									model.config,
 									_List_fromArray(
 										[newChartConfig]))
-							}),
-						$elm$core$Platform$Cmd$none);
+							});
+						var mNewTimeseriesName = $elm$core$List$head(timeseriesNames);
+						var newTimeseriesName = A2($elm$core$Maybe$withDefault, '', mNewTimeseriesName);
+						var idx = $elm$core$List$length(model.config);
+						var $temp$msg = A2($author$project$TimeseriesClient$NewTimeseriesName, idx, newTimeseriesName),
+							$temp$model = model;
+						msg = $temp$msg;
+						model = $temp$model;
+						continue update;
+					} else {
+						var chartConfig = lastConfig.a;
+						return _Utils_Tuple2(
+							_Utils_update(
+								model,
+								{
+									config: A2(
+										$elm$core$List$append,
+										model.config,
+										_List_fromArray(
+											[chartConfig]))
+								}),
+							$elm$core$Platform$Cmd$none);
+					}
 				case 'RemoveChart':
 					var idx = msg.a;
 					var newConfig = A2(
