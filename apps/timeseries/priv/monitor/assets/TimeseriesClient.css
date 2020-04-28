@@ -54,7 +54,7 @@ div.short_select {
 .float_right { float: right; }
 
 button {
-  margin: 5px;
+  margin: 2px;
   padding: 5px;
   border: 1px solid grey;
   text-align: center;

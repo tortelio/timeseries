@@ -10,8 +10,8 @@
     <script src="assets/TimeseriesClient.js"></script>
     <script type="text/javascript">
       var app = Elm.TimeseriesClient.init({ node: document.getElementById("elm") });
-      app.ports.doload.subscribe(function() {
-        app.ports.load.send(document.cookie);
+      app.ports.loadcookie.subscribe(function() {
+        app.ports.cookieloaded.send(document.cookie);
       });
     </script>
   </body>

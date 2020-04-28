@@ -42,8 +42,8 @@ n : Int
 n = 3
 
 -- ports to access the cookie
-port loadcookie : ( String -> msg ) -> Sub msg
-port doloadcookie : () -> Cmd msg
+port cookieloaded : ( String -> msg ) -> Sub msg
+port loadcookie : () -> Cmd msg
 
 -- types, type aliases
 
@@ -142,7 +142,7 @@ init _ = ( { timeseries = Dict.empty
            , timeseriesInfo = Dict.empty
            , width = 0
            }
-         , Cmd.batch [ doloadcookie ()
+         , Cmd.batch [ loadcookie ()
                      , downloadInfo
                      , perform GetViewport getViewport
                      ]
@@ -358,25 +358,22 @@ update msg model =
     AddChart ->
       let
         lastConfig = List.head ( List.reverse model.config )
-        newTimeseriesName =
-          case lastConfig of
-            Nothing ->
-              let
-                timeseriesNames = Dict.keys model.timeseriesInfo
-                firstTimeseriesName = List.head timeseriesNames
-              in
-              Maybe.withDefault "" firstTimeseriesName
-            Just config -> config.timeseriesName
-        mNewTimeseries = Dict.get newTimeseriesName model.timeseries
-        newTimeseries = Maybe.withDefault [] mNewTimeseries
-        newChartConfig = initChartConfig Nothing
-                                         Nothing
-                                         newTimeseriesName
-                                         newTimeseries
       in
-      ( { model | config = List.append model.config [ newChartConfig ] }
-      , Cmd.none
-      )
+      case lastConfig of
+        Nothing ->
+          let
+            timeseriesNames = Dict.keys model.timeseriesInfo
+            mNewTimeseriesName = List.head timeseriesNames
+            newTimeseriesName = Maybe.withDefault "" mNewTimeseriesName
+            newChartConfig = initChartConfig Nothing Nothing "" []
+            newModel = { model | config = List.append model.config [ newChartConfig ] }
+            idx = List.length model.config
+          in
+          update ( NewTimeseriesName idx newTimeseriesName ) model
+        Just chartConfig ->
+          ( { model | config = List.append model.config [ chartConfig ] }
+          , Cmd.none
+          )
     RemoveChart idx ->
       let
         newConfig = List.append ( List.take idx model.config )
@@ -1055,7 +1052,7 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
   Sub.batch [ Time.every 1000 Tick
             , onResize ( \w h -> Resized w )
-            , loadcookie CookieLoaded
+            , cookieloaded CookieLoaded
             ]
 
 -- CALCULATIONS
