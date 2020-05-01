@@ -86,7 +86,7 @@ type AnimationType = None | PointByPoint | SlidingWindow
 
 type Msg
 -- for communication with server
-  = GotInfo  ( Result Error ( Dict String Int ) )
+  = GotInfo ( Result Error ( Dict String Int ) )
   | GotTimeseries  String ( Result Error String )
 -- for communicattion with js (subscriptions)
   | Tick Posix
@@ -138,7 +138,7 @@ main =
 init : flags -> ( Model, Cmd Msg )
 init _ = ( { timeseries = Dict.empty
            , columns = One
-           , config = [ initChartConfig Nothing Nothing "" [] ]
+           , config = [ emptyChartConfig ]
            , timeseriesInfo = Dict.empty
            , width = 0
            }
