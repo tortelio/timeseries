@@ -55,6 +55,8 @@ type alias Timeseries = List Data
 
 type alias Point = { x : Float, y : Float }
 
+type alias PointSeries = List Point
+
 type alias Model = { timeseries : Dict String Timeseries
                    , columns: ColumnCount
                    , config: List ChartConfig
@@ -948,7 +950,7 @@ events idx =
     ]
 
 hintView : ( Int, Int )
-        -> List Point
+        -> PointSeries
         -> ChartConfig
         -> Coordinate.System
         -> List ( Svg.Svg msg )
@@ -1011,7 +1013,7 @@ hintOfPoint config point =
 
 -- CONVERT TIMESERIES TO LIST OF POINTS
 
-points : Timeseries -> ChartConfig -> List Point
+points : Timeseries -> ChartConfig -> PointSeries
 points timeseries config =
   let
     currentDataToPoint = dataToPoint config.xDim config.yDim
@@ -1075,7 +1077,7 @@ differences x =
   in
   List.map2 diff firsts lasts
 
-derivate : List Point -> List Point
+derivate : PointSeries -> PointSeries
 derivate data =
   let
     xx = List.map .x data
