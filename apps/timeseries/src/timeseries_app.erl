@@ -48,15 +48,15 @@ start(_StartType, _StartArgs) ->
 
          % monitor
          {"/index.html",        cowboy_static,
-          {file, "priv/monitor/index.html"}},
+          {file, "apps/timeseries/priv/monitor/this/index.html"}},
          {"/TimeseriesClient.html", cowboy_static,
-          {file, "priv/monitor/TimeseriesClient.html"}},
+          {file, "apps/timeseries/priv/monitor/this/TimeseriesClient.html"}},
          {"/assets/[...]",      cowboy_static,
-          {dir, "priv/monitor/assets"}},
+          {dir, "apps/timeseries/priv/monitor/this/assets"}},
 
          % online collectors
          {"/motion-collector",  cowboy_static,
-          {file, "priv/collectors/sensor.html"}}
+          {file, "apps/timeseries/priv/collectors/sensor.html"}}
         ],
 
     Dispatch = cowboy_router:compile([{'_', PathList}]),

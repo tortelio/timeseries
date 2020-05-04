@@ -31,6 +31,7 @@ import LineChart.Junk as Junk
 import LineChart.Legends as Legends
 import LineChart.Line as Line
 import List.Extra exposing ( unique )
+import Maybe.Extra exposing ( values )
 import Round exposing ( round )
 import Svg exposing ( Svg )
 import Svg.Attributes exposing ( fill )
@@ -146,7 +147,7 @@ init _ = ( { timeseries = Dict.empty
            }
          , Cmd.batch [ loadcookie ()
                      , downloadInfo
-                     , perform GetViewport getViewport
+                     , getWidthAndHight
                      ]
          )
 
@@ -297,7 +298,10 @@ update msg model =
         mTimeseriesName = List.head ( List.reverse splitted )
         timeseriesName = Maybe.withDefault "" mTimeseriesName
       in
-      update ( NewTimeseriesName 0 timeseriesName ) model
+      if not ( timeseriesName == "" ) then
+        update ( NewTimeseriesName 0 timeseriesName ) model
+      else
+        ( model, Cmd.none )
 -- for chart config of what to plot
     NewTimeseriesName chartIdx newTimeseriesName ->
       let
@@ -840,7 +844,7 @@ chart timeseries width twoColumns chartIdx chartConfig =
           , grid = Grid.default
           , area = Area.default
           , line = Line.default
-          , dots = Dots.default
+          , dots = Dots.custom (Dots.full 5)
           }
           [ LineChart.line color
                            Dots.circle
@@ -1018,22 +1022,27 @@ points : Timeseries -> ChartConfig -> PointSeries
 points timeseries config =
   let
     currentDataToPoint = dataToPoint config.xDim config.yDim
-    originalPoints = List.map currentDataToPoint timeseries
+    extractedPoints = List.map currentDataToPoint timeseries
+    originalPoints = values extractedPoints
   in
   if config.derivated then
     derivate originalPoints
   else
     originalPoints
 
-dataToPoint : String -> String -> Data -> Point
+dataToPoint : String -> String -> Data -> Maybe Point
 dataToPoint xDim yDim dict =
   let
     x = Dict.get xDim dict
     justX = Maybe.withDefault 0 x
     y = Dict.get yDim dict
     justY = Maybe.withDefault 0 y
+    currentKeys = Dict.keys dict
   in
-  Point justX justY
+  if ( List.member xDim currentKeys ) && ( List.member yDim currentKeys ) then
+    toMaybe ( Point justX justY )
+  else
+    Nothing
 
 -- COMMUNICATION
 
@@ -1050,6 +1059,9 @@ downloadTimeseries name =
     { url = "/download/" ++ name
     , expect = expectString ( GotTimeseries name )
     }
+
+getWidthAndHight : Cmd Msg
+getWidthAndHight = perform GetViewport getViewport
 
 subscriptions : Model -> Sub Msg
 subscriptions model =

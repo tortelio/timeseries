@@ -40,6 +40,15 @@ timeseries(dummy2) ->
       end,
   Ts2 = lists:foldl(F, Ts1, lists:seq(1, 100)),
   Ts3 = timeseries:finish(Ts2),
+  Ts3;
+
+timeseries(dummy_long5) ->
+  Ts1 = timeseries:new(<<"dummy_long">>),
+  F = fun(I, Ts) ->
+              timeseries:add(Ts, #{<<"t">> => I,  <<"xx">> => 2*I,  <<"yy">> => I})
+      end,
+  Ts2 = lists:foldl(F, Ts1, lists:seq(1, 1000)),
+  Ts3 = timeseries:finish(Ts2),
   Ts3.
 
 -spec save(Id) -> ok when

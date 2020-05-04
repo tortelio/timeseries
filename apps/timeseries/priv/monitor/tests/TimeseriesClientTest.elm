@@ -460,21 +460,24 @@ pointsInChart =
         [ test "Only one key in data"
             ( \_ -> let
                       list = [ ( "t", 1 ) ]
-                      data =  Dict.fromList list
+                      data = Dict.fromList list
+                      point = toMaybe ( Point 1 1 )
                     in
-                    dataToPoint "t" "t" data |> Expect.equal ( Point 1 1 ) )
+                    dataToPoint "t" "t" data |> Expect.equal point )
         , test "Two keys in data"
             ( \_ -> let
                       list = [ ( "t", 1 ), ( "x", 100 ) ]
-                      data =    ( Dict.fromList list )
+                      data = ( Dict.fromList list )
+                      point = toMaybe ( Point 1 100 )
                     in
-                    dataToPoint "t" "x" data |> Expect.equal ( Point 1 100 ) )
+                    dataToPoint "t" "x" data |> Expect.equal point )
         , test "Three keys, switched"
             ( \_ -> let
                       list = [ ( "t", 1 ), ( "x", 100 ), ( "y", 0.1 ) ]
-                      data =    ( Dict.fromList list )
+                      data = ( Dict.fromList list )
+                      point = toMaybe ( Point 0.1 1 )
                     in
-                    dataToPoint "y" "t" data |> Expect.equal ( Point 0.1 1 ) )
+                    dataToPoint "y" "t" data |> Expect.equal point )
         ]
     , describe "Timeseries to list of point"
         [ test "Same dimension"
