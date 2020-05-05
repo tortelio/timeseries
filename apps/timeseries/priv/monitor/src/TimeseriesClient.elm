@@ -284,11 +284,11 @@ update msg model =
       in
       ( { model | config = List.map change model.config }, Cmd.none  )
     GetViewport viewport ->
-      ( { model | width = Basics.round ( viewport.scene.width * 0.9 ) }
+      ( { model | width = Basics.floor viewport.scene.width }
       , Cmd.none
       )
     Resized width ->
-      ( { model | width = Basics.round ( ( toFloat width ) * 0.9 ) }
+      ( { model | width = width }
       , Cmd.none
       )
     CookieLoaded value ->
@@ -743,7 +743,8 @@ charts model =
     width = case model.columns of
       One -> model.width
       Two -> model.width // 2 -- integer division
-    currentChart = chart model.timeseries width ( model.columns == Two )
+    smallWidth = Basics.round ( ( toFloat width ) * 0.9 )
+    currentChart = chart model.timeseries smallWidth ( model.columns == Two )
   in
   div [ id "charts" ]
       ( List.indexedMap currentChart model.config )
