@@ -11,7 +11,7 @@
     <script type="text/javascript">
       var app = Elm.Index.init({ node: document.getElementById("elm") });
       app.ports.save.subscribe(function(value) {
-        document.cookie = "dataset=".concat(value);
+        document.cookie = "timeseries=".concat(value);
       });
     </script>
   </body>

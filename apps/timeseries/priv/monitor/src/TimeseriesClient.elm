@@ -158,11 +158,7 @@ initChartConfig : Maybe String
                -> ChartConfig
 initChartConfig mXDim mYDim name timeseries =
   let
-    sampleData = ( List.head timeseries )
-    dims =
-      case sampleData of
-        Nothing -> []
-        Just sample -> Dict.keys sample
+    dims = unique ( List.concat ( List.map Dict.keys timeseries ) )
 
     xDim = Maybe.withDefault "" mXDim
     yDim = Maybe.withDefault "" mYDim
@@ -262,7 +258,7 @@ update msg model =
     Tick _ ->
       let
         change chartConfig =
-          if chartConfig.paused then
+          if chartConfig.animationType == None || chartConfig.paused then
             chartConfig
           else
             let
@@ -309,11 +305,7 @@ update msg model =
           let
             mNewTimeseries = Dict.get newTimeseriesName model.timeseries
             newTimeseries = Maybe.withDefault [] mNewTimeseries
-            sampleData = List.head newTimeseries
-            newDims =
-              case sampleData of
-                 Nothing -> []
-                 Just sample -> Dict.keys sample
+            newDims = unique ( List.concat ( List.map Dict.keys newTimeseries ) )
             xDimInNewDims = List.member chartConfig.xDim newDims
             yDimInNewDims = List.member chartConfig.yDim newDims
           in
@@ -427,7 +419,7 @@ update msg model =
             chartConfig
       in
         ( updateConfig model ( chartIdx, updateChartConfig ), Cmd.none )
-    OneColumn ->  ( { model | columns = One }, Cmd.none )
+    OneColumn -> ( { model | columns = One }, Cmd.none )
     TwoColumns -> ( { model | columns = Two }, Cmd.none )
 -- for chart config of how to plot
     ZoomIn chartIdx ->
