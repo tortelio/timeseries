@@ -293,8 +293,11 @@ update msg model =
         splitted = String.split "=" value
         mTimeseriesName = List.head ( List.reverse splitted )
         timeseriesName = Maybe.withDefault "" mTimeseriesName
+        timeseriesNames = Dict.keys model.timeseriesInfo
+        timeseriesInServer = List.isEmpty timeseriesNames ||
+                             List.member timeseriesName timeseriesNames
       in
-      if not ( timeseriesName == "" ) then
+      if not ( timeseriesName == "" ) && timeseriesInServer then
         update ( NewTimeseriesName 0 timeseriesName ) model
       else
         ( model, Cmd.none )
@@ -603,9 +606,9 @@ view model =
     timeseriesNames = List.filter isTimeseries currentTimeseriesNames
   in
   div []
-      [ div [ class "header" ]
+      [ div [ id "header" ]
             [ h1 [] [ text "Timeseries Visualization" ] ]
-      , div [ class "about" ]
+      , div [ id "about" ]
             [ configurationView model
             , div [ id "timeseries" ]
                   [ h2 [] [ text "Timeseries" ]
