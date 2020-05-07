@@ -15,3 +15,7 @@ install:
 clean:
 	@echo "Deleting generated files, directories..."
 	rm -rf this
+
+test:
+	@echo "Testing"
+	elm-test tests/TimeseriesClientTest.elm
