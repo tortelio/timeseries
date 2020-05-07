@@ -10,45 +10,47 @@
 -module(timeseries_backend).
 
 %%%=============================================================================
+%%% Types
+%%%=============================================================================
+
+-type config() :: any().
+-type state() :: any().
+
+%%%=============================================================================
 %%% Callbacks
 %%%=============================================================================
 
--callback initialize(Config :: term()) ->
-    {ok, State :: term()} |
-    {error, Reason :: term()} .
+-callback initialize(Config :: config()) ->
+    {ok, State :: state()} | {error, Reason :: any()} .
 
--callback summarize(State1 :: term()) ->
-    {{ok, Info :: #{timeseries:token() => timeseries:info()}} |
-     {error, Reason :: term()},
-     State2 :: term()}.
+-callback summarize(State :: state()) ->
+    {{ok, Summary :: timeseries:summary()} |
+     {error, Reason :: any()},
+     State :: state()}.
 
 -callback info(Token :: timeseries:token(),
-               State1 :: term()) ->
+               State :: state()) ->
     {{ok, Info :: timeseries:info()} |
-     {error, Reason :: term()},
-     State2 :: term()}.
+     {error, Reason :: any()},
+     State :: state()}.
 
 -callback is_available(Token :: timeseries:token(),
-                       State1 :: term()) ->
+                       State :: state()) ->
     {{ok, IsAvailable :: boolean()} |
-     {error, Reason :: term()},
-     State2 :: term()}.
+     {error, Reason :: any()},
+     State :: state()}.
 
 -callback save(Timeseries :: timeseries:timeseries(),
-               State1 :: term()) ->
-    {ok |
-     {error, Reason :: term()},
-     State2 :: term()}.
+               State :: state()) ->
+    {ok | {error, Reason :: any()}, State :: state()}.
 
 -callback load(Token :: timeseries:token(),
-               State1 :: term()) ->
+               State :: state()) ->
     {{ok, Timeseries :: timseries:timeseries()} |
-     {error, Reason :: term()},
-     State2 :: term()}.
+     {error, Reason :: any()},
+     State :: state()}.
 
 -callback add(Token :: timeseries:token(),
               Event :: timeseries:event(),
-              State1 :: term()) ->
-    {ok |
-     {error, Reason :: term()},
-     State2 :: term()}.
+              State :: state()) ->
+    {ok | {error, Reason :: any()}, State :: state()}.

@@ -107,7 +107,7 @@ log(Format, Arguments) ->
 %%------------------------------------------------------------------------------
 -spec call(Module, Function, Arguments) -> Result when
       Module :: module(),
-      Function :: function(),
+      Function :: atom(),
       Arguments :: [any()],
       Result :: any().
 call(Module, Function, Arguments) ->

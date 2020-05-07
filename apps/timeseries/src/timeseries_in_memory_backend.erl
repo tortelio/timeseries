@@ -20,7 +20,6 @@
          is_available/2,
          add/3,
          info/2,
-         finish/2,
          save/2,
          load/2]).
 
@@ -31,8 +30,6 @@
 -type config() :: #{}.
 -type state() :: #{timeseries:token() => timeseries:timeseries()}.
 
-finish(_, State) -> {ok, State}.
-
 %%%=============================================================================
 %%% API functions
 %%%=============================================================================
@@ -41,9 +38,8 @@ finish(_, State) -> {ok, State}.
 %% @doc Initalize
 %% @end
 %%------------------------------------------------------------------------------
--spec initialize(Config) -> Result when
+-spec initialize(Config) -> {ok, State} when
       Config :: config(),
-      Result :: {ok, State},
       State :: state().
 initialize(#{}) ->
     {ok, #{}}.
@@ -52,10 +48,9 @@ initialize(#{}) ->
 %% @doc Summarize
 %% @end
 %%------------------------------------------------------------------------------
--spec summarize(State) -> Result when
+-spec summarize(State) -> {{ok, Summary}, State} when
       State :: state(),
-      Result :: {ok, Info},
-      Info :: #{timeseries:token() => timeseries:info()}.
+      Summary :: timeseries:summary().
 summarize(State) ->
     Info = maps:map(fun(_Token, Timeseries) ->
                             timeseries:info(Timeseries)
@@ -66,23 +61,25 @@ summarize(State) ->
 %% @doc Get info for a given token
 %% @end
 %%------------------------------------------------------------------------------
--spec info(Token, State) -> Info when
+-spec info(Token, State) -> {{ok, Info} | {error, unknown_token}, State} when
       Token :: timeseries:token(),
       State :: state(),
       Info :: timeseries:info().
 info(Token, State) ->
     case maps:find(Token, State) of
         {ok, Timeseries} ->
-            {ok, timeseries:info(Timeseries)};
+            {{ok, timeseries:info(Timeseries)}, State};
         error ->
-            {error, unknown_token}
+            {{error, unknown_token}, State}
     end.
 
--spec save(Timeseries, State) -> Result when
+%%------------------------------------------------------------------------------
+%% @doc Save timeseries
+%% @end
+%%------------------------------------------------------------------------------
+-spec save(Timeseries, State) -> {ok | {error, token_already_exist}, State} when
       Timeseries :: timeseries:timeseries(),
-      State :: state(),
-      Result :: {ok | {error, Reason}, State},
-      Reason :: term().
+      State :: state().
 save(Timeseries, State) ->
     Token = timeseries:token(Timeseries),
     case maps:is_key(Token, State) of
@@ -92,12 +89,15 @@ save(Timeseries, State) ->
             {{error, token_already_exist}, State}
     end.
 
--spec load(Token, State) -> Result when
+%%------------------------------------------------------------------------------
+%% @doc Load timeseries
+%% @end
+%%------------------------------------------------------------------------------
+-spec load(Token, State) -> {{ok, Timeseries} |
+                             {error, unknown_token}, State} when
       Token :: timeseries:token(),
       State :: state(),
-      Result :: {ok, Timeseries} | {error, Reason},
-      Timeseries :: timseries:timeseries(),
-      Reason :: term().
+      Timeseries :: timseries:timeseries().
 load(Token, State) ->
     case maps:find(Token, State) of
         {ok, Timeseries} ->
@@ -106,13 +106,25 @@ load(Token, State) ->
             {{error, unknown_token}, State}
     end.
 
--spec is_available(Token, State) -> Result when
+%%------------------------------------------------------------------------------
+%% @doc Return wheter the given token is available.
+%% @end
+%%------------------------------------------------------------------------------
+-spec is_available(Token, State) -> {{ok, IsAvailable}, State} when
       Token :: timeseries:token(),
       State :: state(),
-      Result :: boolean().
+      IsAvailable :: boolean().
 is_available(Token, State) ->
     {{ok, not maps:is_key(Token, State)}, State}.
 
+%%------------------------------------------------------------------------------
+%% @doc Add an event to an existing timeseries.
+%% @end
+%%------------------------------------------------------------------------------
+-spec add(Token, Event, State) -> {ok | {error, unknown_token}, State} when
+      Token :: timeseries:token(),
+      Event :: timeseries:event(),
+      State :: state().
 add(Token, Event, State) ->
     case maps:find(Token, State) of
         {ok, Timeseries1} ->

@@ -33,7 +33,8 @@
 -export_type([timeseries/0,
               token/0,
               event/0,
-              info/0]).
+              info/0,
+              summary/0]).
 
 %%%=============================================================================
 %%% Types
@@ -48,6 +49,8 @@
 -type event() :: any(). % TODO
 -type info() :: non_neg_integer().
 -type timeseries() :: #timeseries{}.
+
+-type summary() :: #{token() => info()}.
 
 %%%=============================================================================
 %%% API function

@@ -58,7 +58,7 @@ init(Request, []) ->
                                 token => Token}),
                     {cowboy_websocket, Request, State, ?WS_OPTIONS};
 
-                {error, token_already_exist} = Error ->
+                {error, token_already_exist} ->
                     ?LOG_ERROR(#{msg => "Token is already exist",
                                  token => Token}),
                     {ok, cowboy_req:reply(409, #{}, <<>>, Request), State}
