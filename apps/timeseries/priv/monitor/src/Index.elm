@@ -67,7 +67,7 @@ view model =
 
   in
   Html.div []
-    [ div [ class "header" ]
+    [ div [ id "header" ]
           [ h1 [] [ text "Timeseries Visualization" ] ]
     , div [] [ text "Choose a timeseries!" ]
     , div [ class "table" ] [ table [] tableContent ]

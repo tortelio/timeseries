@@ -48,11 +48,11 @@ start(_StartType, _StartArgs) ->
 
          % monitor
          {"/index.html",        cowboy_static,
-          {file, "apps/timeseries/priv/monitor/this/index.html"}},
+          {file, "apps/timeseries/priv/monitor/dist/index.html"}},
          {"/TimeseriesClient.html", cowboy_static,
-          {file, "apps/timeseries/priv/monitor/this/TimeseriesClient.html"}},
+          {file, "apps/timeseries/priv/monitor/dist/TimeseriesClient.html"}},
          {"/assets/[...]",      cowboy_static,
-          {dir, "apps/timeseries/priv/monitor/this/assets"}},
+          {dir, "apps/timeseries/priv/monitor/dist/assets"}},
 
          % online collectors
          {"/motion-collector",  cowboy_static,
