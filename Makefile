@@ -1,31 +1,70 @@
-# Build tools
+###-----------------------------------------------------------------------------
+### Build tools
+###-----------------------------------------------------------------------------
+
 REBAR := $(shell which rebar3)
 
 $(REBAR):
 	@echo Please install \`$@\' manually!
 	@exit 1
 
-shell: $(REBAR)
-	$(REBAR) shell
-
-prod-shell: build $(REBAR)
-	./_build/default/rel/timeseries/bin/timeseries console
+###=============================================================================
+### Targets
+###=============================================================================
 
 .PHONY: build
-build: $(REBAR)
-	$(REBAR) compile
-	$(REBAR) escriptize
-	$(REBAR) release
-	$(REBAR) tar
+build: build-client build-server
 
 .PHONY: test
-test: build $(REBAR)
-	$(REBAR) dialyzer
-	$(REBAR) ct --suite=apps/timeseries/test/integration_SUITE
-	$(REBAR) ct --suite=apps/timeseries_cli/test/cli_SUITE
+test: test-client test-server
+
+.PHONY: shell
+shell: release-server
+	./_build/default/rel/timeseries/bin/timeseries console
+
+.PHONY: shell-dev
+shell-dev: $(REBAR)
+	$(REBAR) shell
 
 .PHONY: cli
 cli: ./timeseries_cli
 
+###-----------------------------------------------------------------------------
+### Server related targets
+###-----------------------------------------------------------------------------
+
+.PHONY: build-server
+build-server: $(REBAR)
+	$(REBAR) compile
+
+.PHONY: build-cli
+build-cli:
+	$(REBAR) escriptize
+
+.PHONY: test-server
+test-server: build-cli $(REBAR)
+	$(REBAR) dialyzer
+	$(REBAR) ct --suite=apps/timeseries/test/integration_SUITE
+	$(REBAR) ct --suite=apps/timeseries_cli/test/cli_SUITE
+
 ./timeseries_cli: build
 	ln -s _build/default/bin/timeseries_cli $@
+
+.PHONY: release-server
+release-server: $(REBAR)
+	$(REBAR) release
+	$(REBAR) tar
+
+###-----------------------------------------------------------------------------
+### Server related targets
+###-----------------------------------------------------------------------------
+
+.PHONY: build-client
+build-client:
+	cd apps/timeseries/priv/monitor && \
+	make install
+
+.PHONY: test-client
+test-client:
+	cd apps/timeseries/priv/monitor && \
+	make test
