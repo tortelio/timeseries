@@ -8,6 +8,7 @@
 %%%-----------------------------------------------------------------------------
 
 -module(timeseries).
+-include("timeseries.hrl").
 
 -compile({no_auto_import, [length/1]}).
 
@@ -68,6 +69,14 @@ new(Token) when is_binary(Token) ->
                 events = [],
                 state = [{created, erlang:timestamp()}]}.
 
+%%------------------------------------------------------------------------------
+%% @doc
+%% @end
+%%------------------------------------------------------------------------------
+-spec new(Token, Events) -> Timeseries when
+      Token :: token(),
+      Events :: [event()],
+      Timeseries :: timeseries().
 new(Token, Events) ->
     #timeseries{token = Token,
                 events = Events,
@@ -154,3 +163,42 @@ is_valid(event, #{<<"t">> := _}) ->
     true;
 is_valid(_, _) ->
     false.
+
+-ifdef(EUNIT).
+
+api_test() ->
+    Token = <<"token">>,
+
+    Timeseries1 = new(Token),
+    ?assertMatch(#timeseries{token = Token, events = []},
+                 Timeseries1),
+    ?assertEqual(Token, token(Timeseries1)),
+    ?assertEqual([], events(Timeseries1)),
+
+    Timeseries2 = add(Timeseries1, #{<<"t">> => 1}),
+    ?assertMatch(#timeseries{token = Token,
+                             events = [#{<<"t">> := 1}]},
+                 Timeseries2),
+    ?assertEqual([#{<<"t">> => 1}],
+                 events(Timeseries2)),
+
+    Timeseries3 = add(Timeseries2, #{<<"t">> => 2}),
+    ?assertMatch(#timeseries{token = Token,
+                             events = [#{<<"t">> := 1},
+                                       #{<<"t">> := 2}]},
+                 Timeseries3),
+    ?assertEqual([#{<<"t">> => 1}, #{<<"t">> => 2}],
+                 events(Timeseries3)),
+
+    Timeseries4 = add(Timeseries3, #{<<"t">> => 3}),
+    ?assertMatch(#timeseries{token = Token,
+                             events = [#{<<"t">> := 1},
+                                       #{<<"t">> := 2},
+                                       #{<<"t">> := 3}]},
+                 Timeseries4),
+    ?assertEqual([#{<<"t">> => 1}, #{<<"t">> => 2}, #{<<"t">> => 3}],
+                 events(Timeseries4)),
+
+    ok.
+
+-endif.

@@ -12,4 +12,9 @@
 -define(APPLICATION, timeseries).
 
 -define(WS_OPTIONS, #{idle_timeout => 3600000}).
+
+-ifdef(EUNIT).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 -endif. %-ifndef(TIMESERIES_PRIVATE_HRL).
