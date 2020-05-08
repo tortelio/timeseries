@@ -13,7 +13,7 @@ $(REBAR):
 ###=============================================================================
 
 .PHONY: build
-build: build-client build-server ./timeseries_cli
+build: build-client build-server build-cli
 
 .PHONY: test
 test: test-client test-server
