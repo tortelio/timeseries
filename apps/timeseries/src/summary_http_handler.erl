@@ -3,11 +3,11 @@
 %%%
 %%% All rights reserved.
 %%%-----------------------------------------------------------------------------
-%%% @doc A cowboy HTTP handler for downloading a given timeseries.
+%%% @doc A cowboy HTTP handler for downloading summary.
 %%% @end
 %%%-----------------------------------------------------------------------------
 
--module(download_http_handler).
+-module(summary_http_handler).
 -include("timeseries.hrl").
 -behaviour(cowboy_rest).
 
@@ -21,14 +21,13 @@
 % REST callbacks
 -export([allowed_methods/2,
          content_types_provided/2,
-         resource_exists/2,
          provide_json/2]).
 
 %%%=============================================================================
 %%% Types
 %%%=============================================================================
 
--type state() :: #{token => timeseries:token()}.
+-type state() :: #{}.
 
 %%%=============================================================================
 %%% API functions
@@ -73,24 +72,6 @@ content_types_provided(Request, State) ->
     {[{{<<"application">>, <<"json">>, '*'}, provide_json}], Request, State}.
 
 %%------------------------------------------------------------------------------
-%% @doc `resource_exists'
-%% @end
-%%------------------------------------------------------------------------------
--spec resource_exists(Request, State) -> {Exists, Request, State} when
-      Request :: cowboy_req:req(),
-      State :: state(),
-      Exists :: boolean().
-resource_exists(Request, State) ->
-    Token = cowboy_req:binding(token, Request),
-    % TODO replace
-    case timeseries_server:info(Token) of
-        {ok, _} ->
-            {true, Request, State#{token => Token}};
-        _ ->
-            {false, Request, State}
-    end.
-
-%%------------------------------------------------------------------------------
 %% @doc `ProvideCallback'
 %% @end
 %%------------------------------------------------------------------------------
@@ -98,14 +79,15 @@ resource_exists(Request, State) ->
       Request :: cowboy_req:req(),
       State :: state(),
       Body :: cowboy_req:resp_body().
-provide_json(Request1, #{token := Token} = State) ->
-    {ok, Timeseries} = timeseries_server:load(Token),
-    Events = timeseries:events(Timeseries),
-    Body = jiffy:encode(#{
-             <<"token">> => Token,
-             <<"events">> => Events
-            }),
+provide_json(Request1, State) ->
+    ?LOG_NOTICE(#{msg => "Initialize"}),
 
+    {ok, Summary} = timeseries_server:summarize(),
+
+    ?LOG_NOTICE(#{msg => "Get summary",
+                  info => Summary}),
+
+    Body = jiffy:encode(Summary),
     Request2 = cowboy_req:set_resp_header(
                  <<"access-control-allow-origin">>, <<"*">>, Request1),
     {Body, Request2, State}.

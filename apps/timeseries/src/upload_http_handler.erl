@@ -3,11 +3,11 @@
 %%%
 %%% All rights reserved.
 %%%-----------------------------------------------------------------------------
-%%% @doc A cowboy HTTP handler for downloading a given timeseries.
+%%% @doc A cowboy HTTP handler for uploading a given timeseries.
 %%% @end
 %%%-----------------------------------------------------------------------------
 
--module(download_http_handler).
+-module(upload_http_handler).
 -include("timeseries.hrl").
 -behaviour(cowboy_rest).
 
@@ -20,15 +20,14 @@
 
 % REST callbacks
 -export([allowed_methods/2,
-         content_types_provided/2,
-         resource_exists/2,
-         provide_json/2]).
+         content_types_accepted/2,
+         accept_json/2]).
 
 %%%=============================================================================
 %%% Types
 %%%=============================================================================
 
--type state() :: #{token => timeseries:token()}.
+-type state() :: #{}.
 
 %%%=============================================================================
 %%% API functions
@@ -54,13 +53,13 @@ init(Request, #{}) ->
       State :: state(),
       Methods :: [binary()].
 allowed_methods(Request, State) ->
-    {[<<"GET">>], Request, State}.
+    {[<<"POST">>], Request, State}.
 
 %%------------------------------------------------------------------------------
-%% @doc `content_type_provided'
+%% @doc `content_type_accepted'
 %% @end
 %%------------------------------------------------------------------------------
--spec content_types_provided(Request, State) -> Result when
+-spec content_types_accepted(Request, State) -> Result when
       Result :: {ContentTypes, Request, State},
       Request :: cowboy_req:req(),
       State :: state(),
@@ -69,43 +68,55 @@ allowed_methods(Request, State) ->
       ParsedMime :: {Type, SubType, '*'},
       Type :: binary(),
       SubType :: binary().
-content_types_provided(Request, State) ->
-    {[{{<<"application">>, <<"json">>, '*'}, provide_json}], Request, State}.
+content_types_accepted(Request, State) ->
+    {[{{<<"application">>, <<"json">>, '*'}, accept_json}], Request, State}.
 
 %%------------------------------------------------------------------------------
-%% @doc `resource_exists'
+%% @doc `AcceptCallback'
 %% @end
 %%------------------------------------------------------------------------------
--spec resource_exists(Request, State) -> {Exists, Request, State} when
+-spec accept_json(Request, State) -> {true | false, Request, State} when
       Request :: cowboy_req:req(),
-      State :: state(),
-      Exists :: boolean().
-resource_exists(Request, State) ->
-    Token = cowboy_req:binding(token, Request),
-    % TODO replace
-    case timeseries_server:info(Token) of
-        {ok, _} ->
-            {true, Request, State#{token => Token}};
-        _ ->
-            {false, Request, State}
+      State :: state().
+accept_json(Request1, State) ->
+    Token = cowboy_req:binding(token, Request1),
+    {ok, Body, Request2} = read_body(Request1),
+
+    case jiffy:decode(Body, [return_maps]) of
+        #{<<"token">> := Token,
+          <<"events">> := Events} ->
+            Timeseries = timeseries:new(Token, Events),
+            case timeseries_server:save(Timeseries) of
+                ok ->
+                    Request3 = cowboy_req:set_resp_header(
+                                 <<"content-type">>,
+                                 <<"application/json">>,
+                                 Request2),
+                    Request4 = cowboy_req:set_resp_body(
+                                 jiffy:encode(#{<<"result">> => <<"ok">>}),
+                                 Request3),
+
+                    {true, Request4, State};
+
+                {error, token_already_exist} ->
+                    {false, Request1, State};
+
+                {error, invalid_timeseries} ->
+                    {false, Request1, State}
+            end;
+        Data ->
+            ?LOG_WARNING(#{msg => "Invalid input data",
+                           data => Data}),
+            {false, Request1, State}
     end.
 
-%%------------------------------------------------------------------------------
-%% @doc `ProvideCallback'
-%% @end
-%%------------------------------------------------------------------------------
--spec provide_json(Request, State) -> {Body, Request, State} when
-      Request :: cowboy_req:req(),
-      State :: state(),
-      Body :: cowboy_req:resp_body().
-provide_json(Request1, #{token := Token} = State) ->
-    {ok, Timeseries} = timeseries_server:load(Token),
-    Events = timeseries:events(Timeseries),
-    Body = jiffy:encode(#{
-             <<"token">> => Token,
-             <<"events">> => Events
-            }),
+read_body(Request) ->
+    read_body(Request, <<>>).
 
-    Request2 = cowboy_req:set_resp_header(
-                 <<"access-control-allow-origin">>, <<"*">>, Request1),
-    {Body, Request2, State}.
+read_body(Request1, Acc) ->
+    case cowboy_req:read_body(Request1) of
+        {ok, Data, Request2} ->
+            {ok, <<Acc/binary, Data/binary>>, Request2};
+        {more, Data, Request2} ->
+            read_body(Request2, <<Acc/binary, Data/binary>>)
+    end.

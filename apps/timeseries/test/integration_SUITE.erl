@@ -7,7 +7,8 @@
 
 all() ->
     [basics,
-     basics_with_file_backend
+     basics_with_file_backend,
+     performance_test_with_file_backend_via_HTTP
     ].
 
 %%%=============================================================================
@@ -41,7 +42,22 @@ end_per_suite(_Config) ->
 -spec init_per_testcase(TestCase, Config) -> Config when
       TestCase :: test_case(),
       Config :: config().
-init_per_testcase(basics, Config) ->
+init_per_testcase(basics, Config1) ->
+    Config2 = init_per_testcase(with_in_memory_backend, Config1),
+    Config3 = init_per_testcase(common, Config2),
+    Config3;
+
+init_per_testcase(basics_with_file_backend, Config1) ->
+    Config2 = init_per_testcase(with_file_backend, Config1),
+    Config3 = init_per_testcase(common, Config2),
+    Config3;
+
+init_per_testcase(performance_test_with_file_backend_via_HTTP, Config1) ->
+    Config2 = init_per_testcase(with_file_backend, Config1),
+    Config3 = init_per_testcase(common, Config2),
+    Config3;
+
+init_per_testcase(with_in_memory_backend, Config) ->
     ok = application:set_env(
            [{timeseries,
              [{backend, timeseries_in_memory_backend},
@@ -49,19 +65,20 @@ init_per_testcase(basics, Config) ->
             }]
           ),
 
-    init_per_testcase(common, Config);
+    Config;
 
-init_per_testcase(basics_with_file_backend, Config) ->
-    try os:cmd("rm -rf /tmp/timeseries") catch _:_ -> skip end,
+init_per_testcase(with_file_backend, Config) ->
+    Path = "/tmp/timeseries",
+
+    try os:cmd("rm -rf " ++ Path) catch _:_ -> skip end,
 
     ok = application:set_env(
            [{timeseries,
              [{backend, timeseries_file_backend},
-              {backend_config, #{data_dir => "/tmp/timeseries"}}]
+              {backend_config, #{data_dir => Path}}]
             }]
           ),
-
-    init_per_testcase(common, Config);
+    [{file_backend_path, Path} | Config];
 
 init_per_testcase(common, Config) ->
     {ok, _} = application:ensure_all_started(timeseries),
@@ -72,9 +89,15 @@ init_per_testcase(common, Config) ->
     try logger:remove_handler(default) catch _:_ -> ok end,
     try logger:add_handlers(kernel) catch _:_ -> ok end,
     % TODO
-    logger:set_handler_config(timeseries_file_logger, level, debug),
+    logger:set_handler_config(timeseries_file_logger, level, warning),
 
-    Config.
+    % Setup server parameters
+    Server = #{
+      host => "0.0.0.0",
+      port => 8080
+     },
+
+    [{server, Server} | Config].
 
 %% @doc Clean up after a test case.
 -spec end_per_testcase(TestCase, Config) -> ok when
@@ -84,6 +107,9 @@ end_per_testcase(basics, Config) ->
     end_per_testcase(common, Config);
 
 end_per_testcase(basics_with_file_backend, Config) ->
+    end_per_testcase(common, Config);
+
+end_per_testcase(performance_test_with_file_backend_via_HTTP, Config) ->
     end_per_testcase(common, Config);
 
 end_per_testcase(common, _Config) ->
@@ -101,75 +127,178 @@ end_per_testcase(common, _Config) ->
 %% @doc TODO
 -spec basics(Config) -> ok when
       Config :: config().
-basics(_Config) ->
+basics(Config) ->
+    Server = proplists:get_value(server, Config),
 
-    % set data
-    {ok, Set} = ws_client:connect("0.0.0.0", 8080, "/save/my-token-123"),
+    Token1 = fixture({token, 1}),
+    Events1 = fixture({events, {incremental, 10}}),
+    Token2 = fixture({token, 2}),
+    Events2 = fixture({events, {incremental, 100}}),
 
-    ok = ws_client:send(Set, #{<<"t">> => 1, <<"x">> => 123}),
-    ok = ws_client:disconnect(Set),
+    % Upload timeseries via HTTP
+    ok = upload_via_http(Server, Token1, Events1),
 
-    % wait
-    ok = timer:sleep(200),
+    % Save timeseries via WebSocket
+    ok = save_via_ws(Server, Token2, Events2),
 
-    % get info
-    {ok, Info} = http_client:connect("0.0.0.0", 8080),
-    ?assertEqual(#{<<"my-token-123">> => 1},
-                 http_client:get(Info, "/info")),
-    ok = http_client:disconnect(Info),
+    % Wait
+    ok = timer:sleep(1000),
 
-    % wait
-    ok = timer:sleep(200),
+    % Get summary
+    ok = get_summary(Server, #{<<"timeseries1">> => 10,
+                               <<"timeseries2">> => 100}),
 
-    % get data
-    {ok, Load} = ws_client:connect("0.0.0.0", 8080, "/load/my-token-123"),
-    ?assertEqual([#{<<"t">> => 1, <<"x">> => 123}],
-                 ws_client:take(Load)),
-    ok = ws_client:disconnect(Load),
+    % Load "timeseries1" via WebSocket
+    ok = load_via_ws(Server, Token1, Events1),
 
-    % get data
-    {ok, Download} = http_client:connect("0.0.0.0", 8080),
-    ?assertEqual([#{<<"t">> => 1, <<"x">> => 123}],
-                 http_client:get(Download, "/download/my-token-123")),
-    ok = http_client:disconnect(Download),
+    % Load "timeseries2" via WebSocket
+    ok = load_via_ws(Server, Token2, Events2),
+
+    % Download "timeseries1" va HTTP
+    ok = download_via_http(Server, Token1, Events1),
+
+    % Download "timeseries2" va HTTP
+    ok = download_via_http(Server, Token2, Events2),
 
     ok.
 
 %% @doc TODO
 -spec basics_with_file_backend(Config) -> ok when
       Config :: config().
-basics_with_file_backend(_Config) ->
-    ?assertEqual({ok, []}, file:list_dir("/tmp/timeseries")),
+basics_with_file_backend(Config) ->
+    Server = proplists:get_value(server, Config),
+    FileBackendPath = proplists:get_value(file_backend_path, Config),
 
-    % set data
-    {ok, Set} = ws_client:connect("0.0.0.0", 8080, "/save/my-token-123"),
+    Token1 = fixture({token, 1}),
+    Events1 = fixture({events, {incremental, 10}}),
+    Token2 = fixture({token, 2}),
+    Events2 = fixture({events, {incremental, 100}}),
 
-    ok = ws_client:send(Set, #{<<"t">> => 1, <<"x">> => 123}),
-    ?assertEqual({ok, ["my-token-123"]}, file:list_dir("/tmp/timeseries")),
-    ok = ws_client:disconnect(Set),
+    ok = check_created_files(FileBackendPath, []),
 
-    % wait
-    ok = timer:sleep(200),
+    % Upload timeseries via HTTP
+    ok = upload_via_http(Server, Token1, Events1),
+    ok = check_created_files(FileBackendPath, ["timeseries1"]),
 
-    % get info
-    {ok, Info} = http_client:connect("0.0.0.0", 8080),
-    ?assertEqual(#{<<"my-token-123">> => 1},
-                 http_client:get(Info, "/info")),
-    ok = http_client:disconnect(Info),
+    % Save timeseries via WebSocket
+    ok = save_via_ws(Server, Token2, Events2),
+    ok = check_created_files(FileBackendPath, ["timeseries1", "timeseries2"]),
 
-    % wait
-    ok = timer:sleep(200),
+    % Wait
+    ok = timer:sleep(1000),
 
-    % get data
-    {ok, Load} = ws_client:connect("0.0.0.0", 8080, "/load/my-token-123"),
-    ?assertEqual([#{<<"t">> => 1, <<"x">> => 123}],
-                 ws_client:take(Load)),
-    ok = ws_client:disconnect(Load),
+    % Get summary
+    ok = get_summary(Server, #{<<"timeseries1">> => 10,
+                               <<"timeseries2">> => 100}),
 
-    % get data
-    {ok, Download} = http_client:connect("0.0.0.0", 8080),
-    ?assertEqual([#{<<"t">> => 1, <<"x">> => 123}],
-                 http_client:get(Download, "/download/my-token-123")),
-    ok = http_client:disconnect(Download),
+    % Load "timeseries1" via WebSocket
+    ok = load_via_ws(Server, Token1, Events1),
+
+    % Load "timeseries2" via WebSocket
+    ok = load_via_ws(Server, Token2, Events2),
+
+    % Download "timeseries1" va HTTP
+    ok = download_via_http(Server, Token1, Events1),
+
+    % Download "timeseries2" va HTTP
+    ok = download_via_http(Server, Token2, Events2),
 
     ok.
+
+performance_test_with_file_backend_via_HTTP(Config) ->
+    Server = proplists:get_value(server, Config),
+    FileBackendPath = proplists:get_value(file_backend_path, Config),
+    N = 10, % number of timeseries
+    M = 1000, % number of events per timeseries
+
+    ok = check_number_of_created_files(FileBackendPath, 0),
+
+    % Batch upload
+    {UploadTime, ok} =
+        timer:tc(fun batch_upload_via_http/3, [Server, N, M]),
+    ct:pal("Execution time of uploading ~p timeseries (in seconds):~p~n",
+           [N, UploadTime/10000000]),
+
+    % Batch download
+    {DownloadTime, ok} =
+        timer:tc(fun batch_download_via_http/3, [Server, N, M]),
+    ct:pal("Execution time of downloading ~p timeseries (in seconds):~p~n",
+           [N, DownloadTime/1000000]),
+
+    ok = check_number_of_created_files(FileBackendPath, N),
+
+    ok.
+
+get_summary(#{host := Host, port := Port}, ExpectedSummary) ->
+    {ok, Info} = http_client:connect(Host, Port),
+    ?assertEqual(ExpectedSummary, http_client:get(Info, "/summary")),
+    ok = http_client:disconnect(Info),
+    ok.
+
+upload_via_http(#{host := Host, port := Port}, Token, Events) ->
+    {ok, Connection} = http_client:connect(Host, Port),
+    Path = "/upload/" ++ binary_to_list(Token),
+    Data = #{<<"token">> => Token, <<"events">> => Events},
+    ?assertEqual(#{<<"result">> => <<"ok">>},
+                 http_client:post(Connection, Path, Data)),
+    ok = http_client:disconnect(Connection),
+    ok.
+
+download_via_http(#{host := Host, port := Port}, Token, ExpectedEvents) ->
+    {ok, Connection} = http_client:connect(Host, Port),
+    Path = "/download/" ++ binary_to_list(Token),
+    ?assertEqual(#{<<"token">> => Token, <<"events">> => ExpectedEvents},
+                 http_client:get(Connection, Path)),
+    ok = http_client:disconnect(Connection),
+    ok.
+
+batch_upload_via_http(Server, N, M) ->
+    [begin
+         Token = fixture({token, I}),
+         Events = fixture({events, {incremental, M}}),
+         ok = upload_via_http(Server, Token, Events)
+     end || I <- lists:seq(1, N)],
+    ok.
+
+batch_download_via_http(Server, N, M) ->
+    [begin
+         Token = fixture({token, I}),
+         Events = fixture({events, {incremental, M}}),
+         ok = download_via_http(Server, Token, Events)
+     end || I <- lists:seq(1, N)],
+    ok.
+
+save_via_ws(#{host := Host, port := Port}, Token, Events) ->
+    Path = "/save/" ++ binary_to_list(Token),
+    {ok, Connection} = ws_client:connect(Host, Port, Path),
+    [ok = ws_client:send(Connection, Event) || Event <- Events],
+    ok = ws_client:disconnect(Connection),
+    ok.
+
+load_via_ws(#{host := Host, port := Port}, Token, ExpectedEvents) ->
+    Path = "/load/" ++ binary_to_list(Token),
+    {ok, Load} = ws_client:connect(Host, Port, Path),
+    [?assertEqual(ExpectedEvent, ws_client:take(Load))
+     || ExpectedEvent <- ExpectedEvents],
+    ok = ws_client:disconnect(Load),
+    ok.
+
+check_created_files(Path, ExpectedFiles) ->
+    Result = file:list_dir(Path),
+    ?assertMatch({ok, _}, Result),
+    {ok, Files} = Result,
+    ?assertEqual(lists:sort(ExpectedFiles), lists:sort(Files)),
+    ok.
+
+check_number_of_created_files(Path, N) ->
+    Result = file:list_dir(Path),
+    ?assertMatch({ok, _}, Result),
+    {ok, Files} = Result,
+    ?assertEqual(N, length(Files)),
+    ok.
+
+fixture({token, I}) ->
+    <<"timeseries", (erlang:integer_to_binary(I))/binary>>;
+
+fixture({events, {incremental, N}}) ->
+    [#{<<"t">> => I, <<"x">> => I} || I <- lists:seq(1, N)].

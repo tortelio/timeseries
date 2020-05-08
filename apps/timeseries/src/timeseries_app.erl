@@ -41,10 +41,11 @@ start(_StartType, _StartArgs) ->
 
     PathList =
         [% timeseries interface
-         {"/info",              info_http_handler, []},
-         {"/download/:token",   download_http_handler, []},
-         {"/save/:token",       save_ws_handler, []},
-         {"/load/:token",       load_ws_handler, []},
+         {"/summary",           summary_http_handler,   #{}},
+         {"/upload/:token",     upload_http_handler,    #{}},
+         {"/download/:token",   download_http_handler,  #{}},
+         {"/save/:token",       save_ws_handler,        #{}},
+         {"/load/:token",       load_ws_handler,        #{}},
 
          % monitor
          {"/index.html",        cowboy_static,

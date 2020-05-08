@@ -6,8 +6,8 @@
 %%% @doc A cowboy HTTP handler for saving a timeseries.
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(save_ws_handler).
 
+-module(save_ws_handler).
 -include("timeseries.hrl").
 
 %%%=============================================================================
@@ -26,7 +26,6 @@
 %%%=============================================================================
 
 -record(state, {token :: timeseries:token()}).
-
 -type state() :: #state{}.
 
 %%%=============================================================================
@@ -37,32 +36,27 @@
 %% @doc Cowboy `init' callback
 %% @end
 %%------------------------------------------------------------------------------
--spec init(Request, Arguments) -> Result when
+-spec init(Request, Config) -> Result when
       Request :: cowboy_req:req(),
-      Arguments :: [],
-      Result :: {cowboy_websocket, Request, State, Options} | {error, Request},
+      Config :: #{},
+      Result :: {cowboy_websocket, Request, State, Options} |
+                {ok, Request, State} |
+                {error, Request},
       State :: state(),
       Options :: cowboy_req:opts().
-init(Request, []) ->
-    ?LOG_NOTICE(#{msg => "Initialize"}),
+init(Request, #{}) ->
+    Token = cowboy_req:binding(token, Request),
+    State = #state{token = Token},
+    case timeseries_server:new(Token) of
+        ok ->
+            ?LOG_INFO(#{msg => "Saving timeseries",
+                        token => Token}),
+            {cowboy_websocket, Request, State, ?WS_OPTIONS};
 
-    case cowboy_req:binding(token, Request) of
-        undefined ->
-            ?LOG_ERROR(#{msg => "Missing token"}),
-            {error, Request};
-        Token ->
-            State = #state{token = Token},
-            case timeseries_server:new(Token) of
-                ok ->
-                    ?LOG_INFO(#{msg => "Saving timeseries",
-                                token => Token}),
-                    {cowboy_websocket, Request, State, ?WS_OPTIONS};
-
-                {error, token_already_exist} ->
-                    ?LOG_ERROR(#{msg => "Token is already exist",
-                                 token => Token}),
-                    {ok, cowboy_req:reply(409, #{}, <<>>, Request), State}
-            end
+        {error, token_already_exist} ->
+            ?LOG_ERROR(#{msg => "Token is already exist",
+                         token => Token}),
+            {ok, cowboy_req:reply(409, #{}, <<>>, Request), State}
     end.
 
 %%------------------------------------------------------------------------------
@@ -86,9 +80,6 @@ websocket_init(State) ->
       State :: state(),
       Result :: {ok, State} | {stop, State}.
 websocket_handle({_, Chunk}, #state{token = Token} = State) ->
-    ?LOG_NOTICE(#{msg => "Websocket message received",
-                  size => size(Chunk)}),
-
     try jiffy:decode(Chunk, [return_maps]) of
         #{<<"t">> := _} = Event ->
             ok = timeseries_server:add(Token, Event),
@@ -125,9 +116,9 @@ websocket_info(Info, State) ->
 %% @doc Cowboy `terminate' callback
 %% @end
 %%------------------------------------------------------------------------------
-terminate(Reason, PartialRequest, State) ->
+terminate(Reason, PartialRequest, #state{token = Token}) ->
     ?LOG_ERROR(#{msg => "Terminate",
                  reason => Reason,
                  partial_request => PartialRequest,
-                 state => State}),
+                 token => Token}),
     ok.

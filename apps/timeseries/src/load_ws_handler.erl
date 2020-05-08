@@ -8,8 +8,7 @@
 %%%-----------------------------------------------------------------------------
 
 -module(load_ws_handler).
-
--include_lib("timeseries.hrl").
+-include("timeseries.hrl").
 
 %%%=============================================================================
 %%% Exports
@@ -26,7 +25,10 @@
 %%% Types
 %%%=============================================================================
 
--record state, {token :: timeseries:token()}.
+-record state, {
+          token :: timeseries:token(),
+          events :: [timeseries:event()] | undefined
+         }.
 
 -type state() :: #state{}.
 
@@ -40,45 +42,39 @@
 %%------------------------------------------------------------------------------
 -spec init(Request, Arguments) -> Result when
       Request :: cowboy_req:req(),
-      Arguments :: [],
-      Result :: {cowboy_websocket, Request, State, Options} | {error, Request},
+      Arguments :: #{},
+      Result :: {cowboy_websocket, Request, State, Options} |
+                {ok, Request, State},
       State :: state(),
       Options :: cowboy_req:opts().
-init(Req, []) ->
-    ?LOG_NOTICE(#{msg => "Initialize"}),
+init(Request, #{}) ->
+    Token = cowboy_req:binding(token, Request),
+    case timeseries_server:load(Token) of
+        {ok, Timeseries} ->
+            Events = timeseries:events(Timeseries),
+            State = #state{token = Token, events = Events},
+            {cowboy_websocket, Request, State, ?WS_OPTIONS};
 
-    case cowboy_req:binding(token, Req) of
-        undefined ->
-            ?LOG_ERROR(#{msg => "Missing token"}),
-            {error, Req};
-        Token ->
-            {cowboy_websocket, Req, #state{token = Token}, ?WS_OPTIONS}
+        {error, unknown_token} ->
+            ?LOG_ERROR(#{msg => "Token is unknown",
+                         token => Token}),
+            State = #state{token = Token},
+            {ok, cowboy_req:reply(404, #{}, <<>>, Request), State}
     end.
 
 %%------------------------------------------------------------------------------
 %% @doc Cowboy `websocket_init' callback
 %% @end
 %%------------------------------------------------------------------------------
--spec websocket_init(State) -> Result when
+-spec websocket_init(State) -> {[{binary, Binary}], State} when
       State :: state(),
-      Result :: {[Message], State},
-      Message :: {binary, Chunk},
-      Chunk :: binary().
-websocket_init(#state{token = Token} = State) ->
-    ?LOG_NOTICE(#{msg => "Initialize WebSocket",
-                  state => State}),
-
-    case timeseries_server:load(Token) of
-        {ok, Timeseries} ->
-            Chunk = jiffy:encode(timeseries:events(Timeseries)),
-            {[{binary, Chunk}], State};
-        Error ->
-            ?LOG_ERROR(#{msg => "Token can't be loaded",
-                         error => Error,
-                         state => State}),
-            Chunk = jiffy:encode(<<"unknown token">>),
-            {[{binary, Chunk}], State}
-    end.
+      Binary :: binary().
+websocket_init(#state{token = Token, events = Events} = State) ->
+    ?LOG_NOTICE(#{msg => "Load event", token => Token}),
+    Commands = [{binary, Binary}
+                || Binary <- lists:map(fun jiffy:encode/1, Events)],
+    self() ! stop,
+    {Commands, State#state{events = Events}}.
 
 %%------------------------------------------------------------------------------
 %% @doc Cowboy `websocket_handle' callback
@@ -102,6 +98,11 @@ websocket_handle(Chunk, State) ->
       Info :: any(),
       State :: state(),
       Result :: {stop, State}.
+websocket_info(stop, #state{token = Token} = State) ->
+    ?LOG_WARNING(#{msg => "Loading ends",
+                   token => Token}),
+    {stop, State};
+
 websocket_info(Info, State) ->
     ?LOG_WARNING(#{msg => "Unknown WebSocket info",
                    info => Info,
@@ -117,9 +118,9 @@ websocket_info(Info, State) ->
       PartialRequest :: cowboy_req:req(),
       State :: state(),
       Result :: ok.
-terminate(Reason, PartialRequest, State) ->
+terminate(Reason, PartialRequest, #state{token = Token}) ->
     ?LOG_ERROR(#{msg => "Terminate",
                  reason => Reason,
                  partial_request => PartialRequest,
-                 state => State}),
+                 token => Token}),
     ok.

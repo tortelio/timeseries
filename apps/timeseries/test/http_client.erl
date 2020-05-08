@@ -4,7 +4,8 @@
 
 -export([connect/2,
          disconnect/1,
-         get/2]).
+         get/2,
+         post/3]).
 
 connect(Url, Port) ->
   {ok, Conn} = gun:open(Url, Port),
@@ -23,6 +24,13 @@ disconnect(Conn) ->
 get(Conn, Path) ->
     Headers = [{<<"content-type">>, <<"application/json">>}],
     StreamRef = gun:get(Conn, Path, Headers),
+    {response, nofin, 200, _Headers} = gun:await(Conn, StreamRef),
+    {ok, Body} = gun:await_body(Conn, StreamRef),
+    jiffy:decode(Body, [return_maps]).
+
+post(Conn, Path, Data) ->
+    Headers = [{<<"content-type">>, <<"application/json">>}],
+    StreamRef = gun:post(Conn, Path, Headers, jiffy:encode(Data)),
     {response, nofin, 200, _Headers} = gun:await(Conn, StreamRef),
     {ok, Body} = gun:await_body(Conn, StreamRef),
     jiffy:decode(Body, [return_maps]).

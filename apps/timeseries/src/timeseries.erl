@@ -82,7 +82,7 @@ new(Token, Events) ->
       Event :: event(),
       Timeseries2 :: timeseries().
 add(#timeseries{events = Events} = Timeseries, Event) ->
-    Timeseries#timeseries{events = [Event | Events]}.
+    Timeseries#timeseries{events = Events ++ [Event]}.
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -132,7 +132,7 @@ token(#timeseries{token = Token}) ->
       Timeseries :: timeseries(),
       Events :: [event()].
 events(#timeseries{events = Events}) ->
-    lists:reverse(Events).
+    Events.
 
 %%------------------------------------------------------------------------------
 %% @doc

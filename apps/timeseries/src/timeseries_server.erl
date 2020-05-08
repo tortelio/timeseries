@@ -117,7 +117,7 @@ save(Timeseries) ->
 %%------------------------------------------------------------------------------
 -spec load(Token) -> Result when
       Token :: timeseries:token(),
-      Result :: {ok, Timeseries} | {error, unknonw_token},
+      Result :: {ok, Timeseries} | {error, unknown_token},
       Timeseries :: timeseries:timerseries().
 load(Token) ->
     gen_server:call(?MODULE, {load, Token}).
@@ -194,7 +194,7 @@ init(Config) ->
       Reply :: term(),
       Reason :: term().
 handle_call(summarize, _, #state{backend = Backend1} = State) ->
-    ?LOG_NOTICE(#{msg => "Get info"}),
+    ?LOG_NOTICE(#{msg => "Get summary"}),
 
     {Result, Backend2} = backend_apply(Backend1, summarize, []),
 
@@ -238,8 +238,7 @@ handle_call({new, Token}, _, #state{backend = Backend1} = State) ->
 
 handle_call({add, Token, Event}, _, #state{backend = Backend1} = State) ->
     ?LOG_NOTICE(#{msg => "Add",
-                  token => Token,
-                  event => Event}),
+                  token => Token}),
 
     case timeseries:is_valid(Event) of
         true ->
