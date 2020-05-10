@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := install
 
-install:
+install: ./node_modules/elm-test/bin/elm-test
 	@echo "Creating directories..."
 	mkdir -p dist/assets
 	@echo "Copying html files..."
@@ -16,6 +16,9 @@ clean:
 	@echo "Deleting generated files, directories..."
 	rm -rf dist
 
-test:
+test: ./node_modules/elm-test/bin/elm-test
 	@echo "Testing"
-	elm-test tests/TimeseriesClientTest.elm
+	$< tests/TimeseriesClientTest.elm
+
+./node_modules/elm-test/bin/elm-test:
+	npm install elm-test
