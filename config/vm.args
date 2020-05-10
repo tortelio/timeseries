@@ -1,4 +1,4 @@
--sname timeseries
+-name timeseries@localhost
 
 -setcookie timeseries_cookie
 
