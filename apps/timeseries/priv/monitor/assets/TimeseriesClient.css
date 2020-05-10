@@ -18,8 +18,8 @@ h2 {
 #about { display: flex; }
 
 #config {
-  padding: 10px;
-  margin: 10px;
+  padding: 5px;
+  margin: 5px;
   border-style: solid;
   border-width: 3px;
   border-color: rgb(89, 51, 204);
@@ -38,11 +38,11 @@ h2 {
 
 div.select {
   width: 220px;
-  margin-left: 10px;
+  margin-left: 0px;
 }
 
 div.short_select {
-  width: 80px;
+  width: 110px;
 }
 
 .float_left { float: left; }

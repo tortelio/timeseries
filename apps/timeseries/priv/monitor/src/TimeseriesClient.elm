@@ -164,8 +164,8 @@ initChartConfig mXDim mYDim name timeseries =
     yDim = Maybe.withDefault "" mYDim
     initXDim =
       if mXDim == Nothing || not ( List.member xDim dims ) then
-        -- default t needed in case of empty timeseries
-        Maybe.withDefault "t" ( List.head dims )
+        -- default is needed in case of empty timeseries
+        Maybe.withDefault "" ( List.head dims )
       else
         xDim
     initYDim =
@@ -244,9 +244,12 @@ update msg model =
         change config =
           -- in case it is the first downloaded timeseries
           if config.timeseriesName == name || config.timeseriesName == "" then
-            initChartConfig Nothing Nothing name timeseries
+            initChartConfig ( toMaybe config.xDim )
+                            ( toMaybe config.yDim )
+                            name
+                            timeseries
           else
-             config
+            config
       in
       ( { model | timeseries = Dict.insert name timeseries model.timeseries
                 , config =  List.map change model.config
@@ -304,6 +307,7 @@ update msg model =
 -- for chart config of what to plot
     NewTimeseriesName chartIdx newTimeseriesName ->
       let
+        timeseriesDownloaded = Dict.member newTimeseriesName model.timeseries
         updateChartConfig chartConfig =
           let
             mNewTimeseries = Dict.get newTimeseriesName model.timeseries
@@ -312,15 +316,18 @@ update msg model =
             xDimInNewDims = List.member chartConfig.xDim newDims
             yDimInNewDims = List.member chartConfig.yDim newDims
           in
-          if xDimInNewDims && yDimInNewDims then
+          if ( xDimInNewDims && yDimInNewDims ) then
             initChartConfig ( toMaybe chartConfig.xDim )
                             ( toMaybe chartConfig.yDim )
                             newTimeseriesName
                             newTimeseries
           else
-            initChartConfig Nothing Nothing newTimeseriesName newTimeseries
+            if timeseriesDownloaded then
+              initChartConfig Nothing Nothing newTimeseriesName newTimeseries
+            else
+              { chartConfig | timeseriesName = newTimeseriesName }
         cmd =
-          if Dict.member newTimeseriesName model.timeseries then
+          if timeseriesDownloaded then
             Cmd.none
           else
             downloadTimeseries newTimeseriesName
@@ -370,7 +377,7 @@ update msg model =
             newModel = { model | config = List.append model.config [ newChartConfig ] }
             idx = List.length model.config
           in
-          update ( NewTimeseriesName idx newTimeseriesName ) model
+          update ( NewTimeseriesName idx newTimeseriesName ) newModel
         Just chartConfig ->
           ( { model | config = List.append model.config [ chartConfig ] }
           , Cmd.none
