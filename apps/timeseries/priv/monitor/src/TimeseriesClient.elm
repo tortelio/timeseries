@@ -341,11 +341,20 @@ update msg model =
             timeseries = Maybe.withDefault [] mTimeseries
             newPoints = points timeseries { chartConfig | xDim = newXAxis }
             newX = List.map .x newPoints
+            newY = List.map .y newPoints
           in
-          { chartConfig | xDim = newXAxis
-                        , xMin = Maybe.withDefault 0 ( List.minimum newX )
-                        , xMax = Maybe.withDefault 1 ( List.maximum newX )
-          }
+          if chartConfig.derivated then
+            { chartConfig | xDim = newXAxis
+                          , xMin = Maybe.withDefault 0 ( List.minimum newX )
+                          , xMax = Maybe.withDefault 1 ( List.maximum newX )
+                          , yMin = Maybe.withDefault 0 ( List.minimum newY )
+                          , yMax = Maybe.withDefault 1 ( List.maximum newY )
+            }
+          else
+            { chartConfig | xDim = newXAxis
+                          , xMin = Maybe.withDefault 0 ( List.minimum newX )
+                          , xMax = Maybe.withDefault 1 ( List.maximum newX )
+            }
       in
         ( updateConfig model ( chartIdx, updateChartConfig ), Cmd.none )
     NewYAxis chartIdx newYAxis ->
@@ -984,7 +993,7 @@ hintView ( height, width ) currentPoints config system =
               ( config.current, Colors.black )
           Nothing -> ( config.current, Colors.black )
       (xHint, yHint) = hintOfPoint config hinted
-      xLabel = system.x.max + ( system.x.max - system.x.min ) * 0.05
+      xLabel = system.x.max
       labelHeight = ( system.y.max - system.y.min ) / ( toFloat height ) * 50
       yLabel = Basics.min hinted.y (system.y.max - 2 * labelHeight )
       yLabelDown = yLabel - labelHeight
@@ -1092,7 +1101,11 @@ differences x =
   let
      firsts = List.take ( ( List.length x) - 1 ) x
      lasts = Maybe.withDefault [] ( List.tail x )
-     diff start end = end - start
+     diff start end =
+       if start - end == 0 then
+         10^(-5)
+       else
+         end - start
   in
   List.map2 diff firsts lasts
 
