@@ -38,17 +38,20 @@ build-server: $(REBAR)
 	$(REBAR) compile
 
 .PHONY: build-cli
-build-cli:
+build-cli: cli
+
+.PHONY: compile-cli
+compile-cli:
 	$(REBAR) escriptize
+
+./timeseries_cli: compile-cli
+	ln -f -s _build/default/bin/timeseries_cli $#
 
 .PHONY: test-server
 test-server: build-cli $(REBAR)
 	$(REBAR) dialyzer
 	$(REBAR) ct --suite=apps/timeseries/test/integration_SUITE
 	$(REBAR) ct --suite=apps/timeseries_cli/test/cli_SUITE
-
-./timeseries_cli: build
-	ln -s _build/default/bin/timeseries_cli $@
 
 .PHONY: release-server
 release-server: $(REBAR)
