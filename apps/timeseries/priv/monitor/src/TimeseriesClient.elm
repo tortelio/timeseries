@@ -10,7 +10,7 @@ import Html exposing ( div, h1, h2, p, text, table, td, tr, th, thead,
 import Html.Attributes exposing ( id, class , selected, value)
 import Html.Events exposing ( on, onClick, targetValue )
 import Http exposing ( get, expectJson, expectString, Error )
-import Json.Decode exposing ( dict, int, float, list, decodeString, map )
+import Json.Decode exposing ( dict, int, float, list, decodeString, map, at )
 import LineChart
 import LineChart.Area as Area
 import LineChart.Axis as Axis
@@ -40,7 +40,7 @@ import Task exposing ( perform )
 
 -- width of sliding window in animation
 n : Int
-n = 3
+n = 8
 
 -- ports to access the cookie
 port cookieloaded : ( String -> msg ) -> Sub msg
@@ -237,7 +237,7 @@ update msg model =
       let
         -- using json decode
         decoder = list ( dict float )
-        decoded = decodeString decoder timeseriesString
+        decoded = decodeString (at ["events"] decoder) timeseriesString
         timeseries = case decoded of
                        Ok data -> data
                        Err _ -> []
@@ -787,6 +787,10 @@ chart timeseries width twoColumns chartIdx chartConfig =
       else
         "Pause"
     height = Basics.round ( ( toFloat width ) * 0.5 )
+    splittedName = String.split "-" chartConfig.timeseriesName
+    name = case List.head ( List.reverse splittedName ) of
+             Nothing -> ""
+             Just splittedPart -> splittedPart
   in
   div [ class "chart", class float ]
       [ chartControlView chartIdx
@@ -843,7 +847,7 @@ chart timeseries width twoColumns chartIdx chartConfig =
           }
           [ LineChart.line color
                            Dots.circle
-                           chartConfig.timeseriesName
+                           name
                            pointsToPlot
           ]
   ]
@@ -1044,7 +1048,7 @@ dataToPoint xDim yDim dict =
 downloadInfo : Cmd Msg
 downloadInfo =
   Http.get
-    { url = "/info"
+    { url = "/summary"
     , expect = expectJson GotInfo ( dict int )
     }
 

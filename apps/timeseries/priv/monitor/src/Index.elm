@@ -76,7 +76,7 @@ view model =
 downloadInfo : Cmd Msg
 downloadInfo =
   Http.get
-  { url = "/info"
+  { url = "/summary"
   , expect = Http.expectJson GotInfo ( Json.dict Json.int )
   }
 
