@@ -27,7 +27,10 @@ shell-dev: $(REBAR)
 	$(REBAR) shell
 
 .PHONY: cli
-cli: ./timeseries_cli
+cli: ./timeseries_cli ./example-data
+
+./example-data:
+	ln -f -s apps/timeseries_cli/priv/ $@
 
 ###-----------------------------------------------------------------------------
 ### Server related targets
@@ -45,7 +48,7 @@ compile-cli:
 	$(REBAR) escriptize
 
 ./timeseries_cli: compile-cli
-	ln -f -s _build/default/bin/timeseries_cli $#
+	ln -f -s _build/default/bin/timeseries_cli $@
 
 .PHONY: test-server
 test-server: build-cli $(REBAR)
