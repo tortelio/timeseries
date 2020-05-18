@@ -8,8 +8,16 @@
 all() ->
     [basics,
      basics_with_file_backend,
-     performance_test_with_file_backend_via_HTTP
+     %performance_test_sequential_with_file_backend_via_HTTP,
+     performance_test_parallel_with_file_backend_via_HTTP
     ].
+
+-define(REPORT(__Type, __Action, __N, __M, __Time),
+        (fun(Type, Action, N, M, Time) ->
+             Format = "type = ~p, action = ~p, n = ~p, m = ~p, seconds = ~p~n",
+             Line = io_lib:format(Format, [Type, Action, N, M, Time/10000000]),
+             file:write_file("/tmp/performance", Line, [append])
+         end)(__Type, __Action, __N, __M, __Time)).
 
 %%%=============================================================================
 %%% Types
@@ -52,7 +60,14 @@ init_per_testcase(basics_with_file_backend, Config1) ->
     Config3 = init_per_testcase(common, Config2),
     Config3;
 
-init_per_testcase(performance_test_with_file_backend_via_HTTP, Config1) ->
+init_per_testcase(performance_test_sequential_with_file_backend_via_HTTP,
+                  Config1) ->
+    Config2 = init_per_testcase(with_file_backend, Config1),
+    Config3 = init_per_testcase(common, Config2),
+    Config3;
+
+init_per_testcase(performance_test_parallel_with_file_backend_via_HTTP,
+                  Config1) ->
     Config2 = init_per_testcase(with_file_backend, Config1),
     Config3 = init_per_testcase(common, Config2),
     Config3;
@@ -109,7 +124,12 @@ end_per_testcase(basics, Config) ->
 end_per_testcase(basics_with_file_backend, Config) ->
     end_per_testcase(common, Config);
 
-end_per_testcase(performance_test_with_file_backend_via_HTTP, Config) ->
+end_per_testcase(performance_test_sequential_with_file_backend_via_HTTP,
+                 Config) ->
+    end_per_testcase(common, Config);
+
+end_per_testcase(performance_test_parallel_with_file_backend_via_HTTP,
+                 Config) ->
     end_per_testcase(common, Config);
 
 end_per_testcase(common, _Config) ->
@@ -205,27 +225,69 @@ basics_with_file_backend(Config) ->
 
     ok.
 
-performance_test_with_file_backend_via_HTTP(Config) ->
-    Server = proplists:get_value(server, Config),
-    FileBackendPath = proplists:get_value(file_backend_path, Config),
-    N = 10, % number of timeseries
-    M = 1000, % number of events per timeseries
+performance_test_sequential_with_file_backend_via_HTTP(Config1) ->
+    [try
+         try os:cmd("rm -rf /tmp/timeseries/*") catch _:_ -> skip end,
+         Config2 = [{no_timeseries, N}, {no_events, M} | Config1],
+         ok = do_performance_test_sequential_with_file_backend_via_HTTP(Config2)
+     catch
+         _:_ ->
+             skip
+     end
+     || N <- [10, 20, 30, 50],
+        M <- [100, 500, 1000, 5000, 10000, 20000]],
 
-    ok = check_number_of_created_files(FileBackendPath, 0),
+    ok.
+
+do_performance_test_sequential_with_file_backend_via_HTTP(Config) ->
+    Server = proplists:get_value(server, Config),
+    NOTimeseries = proplists:get_value(no_timeseries, Config),
+    NOEvents = proplists:get_value(no_events, Config),
 
     % Batch upload
-    {UploadTime, ok} =
-        timer:tc(fun batch_upload_via_http/3, [Server, N, M]),
-    ct:pal("Execution time of uploading ~p timeseries (in seconds):~p~n",
-           [N, UploadTime/10000000]),
+    {UploadTime, ok} = timer:tc(fun sequential_upload_via_http/3,
+                                [Server, NOTimeseries, NOEvents]),
+
+    ?REPORT(sequential, upload, NOTimeseries, NOEvents, UploadTime),
 
     % Batch download
-    {DownloadTime, ok} =
-        timer:tc(fun batch_download_via_http/3, [Server, N, M]),
-    ct:pal("Execution time of downloading ~p timeseries (in seconds):~p~n",
-           [N, DownloadTime/1000000]),
+    {DownloadTime, ok} = timer:tc(fun sequential_download_via_http/3,
+                                [Server, NOTimeseries, NOEvents]),
 
-    ok = check_number_of_created_files(FileBackendPath, N),
+    ?REPORT(sequential, download, NOTimeseries, NOEvents, DownloadTime),
+
+    ok.
+
+performance_test_parallel_with_file_backend_via_HTTP(Config1) ->
+    [try
+         try os:cmd("rm -rf /tmp/timeseries/*") catch _:_ -> skip end,
+         Config2 = [{no_timeseries, N}, {no_events, M} | Config1],
+         ok = do_performance_test_parallel_with_file_backend_via_HTTP(Config2)
+     catch
+         _:_ ->
+             skip
+     end
+     || N <- [10, 20, 30, 50],
+        M <- [100, 500, 1000, 5000, 10000, 20000]],
+
+    ok.
+
+do_performance_test_parallel_with_file_backend_via_HTTP(Config) ->
+    Server = proplists:get_value(server, Config),
+    NOTimeseries = proplists:get_value(no_timeseries, Config),
+    NOEvents = proplists:get_value(no_events, Config),
+
+    % Batch upload
+    {UploadTime, ok} = timer:tc(fun parallel_upload_via_http/3,
+                                [Server, NOTimeseries, NOEvents]),
+
+    ?REPORT(parallel, upload, NOTimeseries, NOEvents, UploadTime),
+
+    % Batch download
+    {DownloadTime, ok} = timer:tc(fun parallel_download_via_http/3,
+                                  [Server, NOTimeseries, NOEvents]),
+
+    ?REPORT(parallel, download, NOTimeseries, NOEvents, DownloadTime),
 
     ok.
 
@@ -252,21 +314,73 @@ download_via_http(#{host := Host, port := Port}, Token, ExpectedEvents) ->
     ok = http_client:disconnect(Connection),
     ok.
 
-batch_upload_via_http(Server, N, M) ->
+sequential_upload_via_http(Server, N, M) ->
+    Ids = lists:seq(1, N),
     [begin
-         Token = fixture({token, I}),
+         Token = fixture({token, Id}),
          Events = fixture({events, {incremental, M}}),
          ok = upload_via_http(Server, Token, Events)
-     end || I <- lists:seq(1, N)],
+     end || Id <- Ids],
     ok.
 
-batch_download_via_http(Server, N, M) ->
+sequential_download_via_http(Server, N, M) ->
+    Ids = lists:seq(1, N),
     [begin
-         Token = fixture({token, I}),
+         Token = fixture({token, Id}),
          Events = fixture({events, {incremental, M}}),
          ok = download_via_http(Server, Token, Events)
-     end || I <- lists:seq(1, N)],
+     end || Id <- Ids],
     ok.
+
+parallel_upload_via_http(Server, N, M) ->
+    Ids = lists:seq(1, N),
+    [do_spawn(Id, upload_via_http_fun(Server, Id, M)) || Id <- Ids],
+    ?assert(lists:all(fun({_Id, Result}) -> Result =:= ok end,
+                      wait_responses(Ids))),
+    ok.
+
+upload_via_http_fun(Server, Id, M) ->
+    fun() ->
+            Token = fixture({token, Id}),
+            Events = fixture({events, {incremental, M}}),
+            ok = upload_via_http(Server, Token, Events)
+    end.
+
+download_via_http_fun(Server, Id, M) ->
+    fun() ->
+            Token = fixture({token, Id}),
+            Events = fixture({events, {incremental, M}}),
+            ok = download_via_http(Server, Token, Events)
+    end.
+
+do_spawn(Id, F) ->
+    Pid = self(),
+    spawn_link(fun() ->
+                       io:format("spawned: (~p) #~p~n", [Pid, Id]),
+                       Pid ! {Id, F()}
+               end).
+
+parallel_download_via_http(Server, N, M) ->
+    Ids = lists:seq(1, N),
+    [do_spawn(Id, download_via_http_fun(Server, Id, M)) || Id <- Ids],
+    ?assert(lists:all(fun({_Id, Result}) -> Result =:= ok end,
+                      wait_responses(Ids))),
+    ok.
+
+wait_responses(Ids) ->
+    wait_responses(Ids, []).
+
+wait_responses([], Acc) ->
+    Acc;
+
+wait_responses(Ids, Acc) ->
+    receive
+        {Id, Result} ->
+            wait_responses(Ids -- [Id], [{Id, Result} | Acc])
+    after
+        10000 ->
+            error({timeout, {missing_results, Ids}})
+    end.
 
 save_via_ws(#{host := Host, port := Port}, Token, Events) ->
     Path = "/save/" ++ binary_to_list(Token),
@@ -288,13 +402,6 @@ check_created_files(Path, ExpectedFiles) ->
     ?assertMatch({ok, _}, Result),
     {ok, Files} = Result,
     ?assertEqual(lists:sort(ExpectedFiles), lists:sort(Files)),
-    ok.
-
-check_number_of_created_files(Path, N) ->
-    Result = file:list_dir(Path),
-    ?assertMatch({ok, _}, Result),
-    {ok, Files} = Result,
-    ?assertEqual(N, length(Files)),
     ok.
 
 fixture({token, I}) ->

@@ -22,15 +22,15 @@ disconnect(Conn) ->
     ok = gun:close(Conn).
 
 get(Conn, Path) ->
-    Headers = [{<<"content-type">>, <<"application/json">>}],
+    Headers = [{<<"accept">>, <<"application/json">>}],
     StreamRef = gun:get(Conn, Path, Headers),
-    {response, nofin, 200, _Headers} = gun:await(Conn, StreamRef),
-    {ok, Body} = gun:await_body(Conn, StreamRef),
+    {response, nofin, 200, _Headers} = gun:await(Conn, StreamRef, 50000),
+    {ok, Body} = gun:await_body(Conn, StreamRef, 50000),
     jiffy:decode(Body, [return_maps]).
 
 post(Conn, Path, Data) ->
     Headers = [{<<"content-type">>, <<"application/json">>}],
     StreamRef = gun:post(Conn, Path, Headers, jiffy:encode(Data)),
-    {response, nofin, 200, _Headers} = gun:await(Conn, StreamRef),
-    {ok, Body} = gun:await_body(Conn, StreamRef),
+    {response, nofin, 200, _Headers} = gun:await(Conn, StreamRef, 50000),
+    {ok, Body} = gun:await_body(Conn, StreamRef, 50000),
     jiffy:decode(Body, [return_maps]).
