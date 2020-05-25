@@ -39,7 +39,7 @@
 %%% Macros
 %%%=============================================================================
 
--define(TIMEOUT, 5000). % 5 seconds
+-define(TIMEOUT, 60000). % 60 seconds
 
 %%%=============================================================================
 %%% Types
@@ -88,7 +88,7 @@ start_link(Config) ->
       Result :: {ok, AllInfo},
       AllInfo :: #{timeseriser:token() => timeseries:info()}.
 summarize() ->
-    gen_server:call(?MODULE, summarize).
+    gen_server:call(?MODULE, summarize, ?TIMEOUT).
 
 %%------------------------------------------------------------------------------
 %% @doc Get info about given timeseries.
@@ -99,7 +99,7 @@ summarize() ->
       Result :: {ok, Info} | {error, unknown_token},
       Info :: timeseries:info().
 info(Token) ->
-    gen_server:call(?MODULE, {info, Token}).
+    gen_server:call(?MODULE, {info, Token}, ?TIMEOUT).
 
 %%------------------------------------------------------------------------------
 %% @doc Save a given timeseries.
@@ -109,7 +109,7 @@ info(Token) ->
       Timeseries :: timeseries:timerseries(),
       Result :: ok | {error, token_already_exist | invalid_timeseries}.
 save(Timeseries) ->
-    gen_server:call(?MODULE, {save, Timeseries}).
+    gen_server:call(?MODULE, {save, Timeseries}, ?TIMEOUT).
 
 %%------------------------------------------------------------------------------
 %% @doc Load a given timeseries.
@@ -120,7 +120,7 @@ save(Timeseries) ->
       Result :: {ok, Timeseries} | {error, unknown_token},
       Timeseries :: timeseries:timerseries().
 load(Token) ->
-    gen_server:call(?MODULE, {load, Token}).
+    gen_server:call(?MODULE, {load, Token}, ?TIMEOUT).
 
 %%------------------------------------------------------------------------------
 %% @doc Create an empty timeseries with the given token.
@@ -141,7 +141,7 @@ new(Token) ->
       Event :: timeseries:event(),
       Result :: ok | {error, unknown_token}.
 add(Token, Event) ->
-    gen_server:call(?MODULE, {add, Token, Event}).
+    gen_server:call(?MODULE, {add, Token, Event}, ?TIMEOUT).
 
 %%------------------------------------------------------------------------------
 %% @doc Load config.
