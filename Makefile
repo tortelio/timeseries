@@ -53,6 +53,7 @@ compile-cli:
 .PHONY: test-server
 test-server: build-cli $(REBAR)
 	$(REBAR) dialyzer
+	$(REBAR) eunit
 	$(REBAR) ct --suite=apps/timeseries/test/integration_SUITE
 	$(REBAR) ct --suite=apps/timeseries_cli/test/cli_SUITE
 
